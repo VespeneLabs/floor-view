@@ -80,6 +80,7 @@ viewer.setLayer({
   type: 'points',
   points: [{ id: 's1', levelId: 'level_ground', position: { x: 4, y: 9 }, color: '#ef4444', data: { temp: 24.1 } }],
   size: 0.2,        // sphere radius (m), per point via `size`
+  shape: 'sphere',  // 'sphere' | 'box' | 'cylinder' | 'cone' | 'diamond', per point via `shape`
   elevation: 2.2,   // height above the level floor (m)
   tooltip: (p) => `${p.data?.temp} °C`,
   label: (p) => `${p.data?.temp} °C`, // persistent text above each point (optional)
@@ -90,13 +91,14 @@ viewer.setLayer({
 Points with an unknown `levelId` are skipped. Clicking a point gives `target.kind === 'point'` and `target.layerId`.
 
 - **Labels.** `label(point)` returns plain text shown permanently above the point (null for none), e.g. a live reading. They are independent of the plan's room labels (`setShowLabels`) and styled by `.vl-viewer__point-label` (`--vl-point-label`, `--vl-point-label-bg`).
-- **Ring.** `ring: '#dc2626'` on a point draws an outline ring around its sphere in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
+- **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`.
+- **Ring.** `ring: '#dc2626'` on a point draws an outline ring around it in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
 
 ### Live updates
 
 Call `setLayer` (or `updateLayer`) again with the same `id` whenever values change. For points and heatmaps this doesn't rebuild the scene:
 
-- **Points** are matched by `id`: existing spheres, rings and labels are updated in place (position, color, size, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
+- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, color, size, shape, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
 - **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
 
 ```ts

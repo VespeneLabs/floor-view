@@ -205,6 +205,7 @@ export class FloorplanViewer {
     this.mode = mode;
     this.controls.dispose();
     this.controls = this.createControls();
+    for (const view of this.pointViews.values()) view.setMode(mode);
     this.applyLevelVisibility();
     this.fitView();
     this.events.emit('modechange', mode);
@@ -508,6 +509,7 @@ export class FloorplanViewer {
       let view = this.pointViews.get(layer.id);
       if (!view) {
         view = new PointLayerView(layer.id, (levelId, group) => this.built.find((b) => b.levelId === levelId)?.group.add(group));
+        view.setMode(this.mode);
         this.pointViews.set(layer.id, view);
       }
       view.sync(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point);
