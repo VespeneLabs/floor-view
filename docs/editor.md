@@ -12,6 +12,9 @@ const editor = new FloorplanEditor(container, {
   grid: 0.25,         // grid size in meters
   snap: true,         // snap to the grid and to existing wall endpoints / room corners
   wallThickness: 0.15,
+  tools: ['select', 'pan'], // optional: the tools the user may use (default: all)
+  readOnly: false,          // optional: the user can't change the plan
+  overlayPoints: [],        // optional: host-managed points on top (see below)
 });
 ```
 
@@ -54,6 +57,11 @@ Snapping prefers existing points within 10 px over the grid. The snap cursor tur
 | `undo()` / `redo()` / `canUndo()` / `canRedo()` | Snapshot-based history (200 steps). |
 | `setGrid(m)` / `setSnap(bool)` / `setWallThickness(m)` | Drawing settings. |
 | `setUnderlay({ url, x, y, width, height, opacity? } \| null)` / `getUnderlay()` | Show a reference image (e.g. a scanned drawing) under the plan, positioned in plan meters, for tracing. Not saved in the plan. `fitView()` frames it when the level is empty. |
+| `availableTools()` / `setTools(tools)` | The tools the user may use. `setTool` and the keyboard shortcuts ignore the others; if the current tool is removed, the first allowed one becomes active. The editor has no toolbar of its own, so render only `availableTools()` in yours. |
+| `isReadOnly()` / `setReadOnly(bool)` | Read-only mode (below). |
+| `setOverlayPoints(points)` / `getOverlayPoints()` | Host-managed overlay points (below). |
+| `getOverlaySelection()` / `selectOverlayPoint(id \| null)` | The selected overlay point. Selecting one clears the entity selection and vice versa. |
+| `clientToPlan(clientX, clientY, { snap? })` | Client coordinates (e.g. from a `drop` event) → `{ levelId, position }` on the active level in meters, or `null` outside the editor. `snap: true` snaps like a new marker. |
 | `fitView()` / `dispose()` | |
 
 Every public mutation is one undoable step. A whole drag also counts as one step.
@@ -66,9 +74,38 @@ editor.on('selectionchange', (ref) => ...);
 editor.on('toolchange', (tool) => ...);
 editor.on('levelchange', (levelId) => ...);
 editor.on('historychange', ({ canUndo, canRedo }) => ...);
+editor.on('overlaypointselect', (id) => ...);                         // overlay point selected (or null)
+editor.on('overlaypointmove', ({ id, levelId, position }) => ...);    // overlay point dropped after a drag
 ```
 
 Pair the editor with a viewer by forwarding `change` to `viewer.setPlan(plan)`. In the other direction, map a viewer `click` to `editor.select(...)`. Floorview Studio does both (`studio/src/features/viewer/ViewerPanel.tsx`).
+
+## Read-only mode
+
+`readOnly: true` (or `setReadOnly(true)`) lets the user select, pan and zoom, but not draw, move, reshape or delete plan entities, or undo/redo from the keyboard. Only the `select` and `pan` tools are available, handles are hidden, and the element gets a `data-readonly` attribute. Selection still emits `selectionchange` (e.g. for an inspector), draggable overlay points can still be moved, and API calls (`setPlan`, `updateEntity`…) still apply.
+
+## Overlay points
+
+Overlay points are host data drawn on top of the plan, for example sensor positions kept in your own database. They are not part of the plan: they aren't saved with it, don't trigger `change` and have no undo history.
+
+```ts
+editor.setOverlayPoints(sensors.map((s) => ({ id: s.id, levelId: s.levelId, position: s.position, label: s.name, color: s.online ? undefined : '#94a3b8' })));
+
+editor.on('overlaypointmove', async ({ id, levelId, position }) => {
+  await api.updateSensorPosition(id, { levelId, position }); // then setOverlayPoints with the saved data
+});
+
+// Accept HTML drag-and-drop from a sensor list outside the editor:
+editor.element.addEventListener('dragover', (e) => e.preventDefault());
+editor.element.addEventListener('drop', (e) => {
+  const target = editor.clientToPlan(e.clientX, e.clientY, { snap: true });
+  if (target) placeSensor(e.dataTransfer!.getData('text/plain'), target.levelId, target.position);
+});
+```
+
+- Only the active level's points are drawn, at a fixed screen size, with an optional `label`. `color` sets the fill (default `--vl-overlay`).
+- With the `select` tool (also in read-only mode), clicking a point selects it (`overlaypointselect`) and dragging moves it, snapped like markers (hold `Alt` to bypass). The editor emits one `overlaypointmove` on drop and keeps showing the dropped position until you call `setOverlayPoints` again. `draggable: false` makes a point selectable only.
+- `setOverlayPoints` replaces all points; calling it during a drag keeps the dragged point under the pointer.
 
 ## Styling
 
@@ -84,5 +121,6 @@ All editor colors come from CSS custom properties on `.vl-editor`, so a host app
 | `--vl-selection`, `--vl-handle` | selection outline and handles |
 | `--vl-draft`, `--vl-snap` | drawing preview, snap cursor (snapped) |
 | `--vl-label`, `--vl-muted` | room names, areas and measurements |
+| `--vl-overlay`, `--vl-overlay-stroke` | overlay points without their own `color`, their outline (labels use `--vl-label`) |
 
 Colors set on entities in the plan data (`room.color`, `marker.color`) take precedence. The current tool is available as `data-tool` on the element, for cursor styling.

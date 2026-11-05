@@ -65,6 +65,9 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-EDT-07: An underlay image (e.g. a scanned drawing) can be shown under the plan, positioned in plan meters, for tracing. It is not saved in the plan.
 - FR-EDT-08: The editor emits events (`change`, selection, tool and level changes) so a host app can follow it.
 - FR-EDT-09: All editor colors come from `--vl-*` CSS custom properties, so the host can theme it (light and dark).
+- FR-EDT-10: Hosts can draw their own overlay points (e.g. sensors stored outside the plan) on top of the active level with a color and label. The user can select and drag them; the editor reports the dropped position (`overlaypointmove`) without changing the plan or its history.
+- FR-EDT-11: `clientToPlan(clientX, clientY)` converts viewport coordinates to a plan position on the active level, so hosts can accept drag-and-drop from outside the editor.
+- FR-EDT-12: Hosts can limit the available tools (`tools`) and switch the editor to read-only, where the user can select, pan and zoom but not change the plan.
 
 ### 3.3 2D/3D viewer (Must)
 
