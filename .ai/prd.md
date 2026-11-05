@@ -90,6 +90,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-LAY-06: Replacing a points or heatmap layer with new values updates the scene in place (points matched by ID, heatmap texture refilled with a cached room mask), so values can update every 1–5 s for about 100 points without rebuilding the scene. `updateLayer(id, patch)` merges a partial update.
 - FR-LAY-07: Points have a shape (sphere, box, cylinder, cone, diamond; layer default, per-point override), so kinds of items (e.g. sensors, gas inlets, consumers) can be told apart. Shapes are solids in 3D and distinct flat glyphs in 2D.
 - FR-LAY-08: Points can show an animated alert beam (a light column and pulsing ground ring in 3D, an expanding ring in 2D). The viewer renders continuously only while a beam is visible, and beams are static under `prefers-reduced-motion`.
+- FR-LAY-09: A point layer can be hidden and shown (`visible`) without rebuilding, independently of the room name labels.
 
 ### 3.5 Floorview Studio: editor page (Must)
 

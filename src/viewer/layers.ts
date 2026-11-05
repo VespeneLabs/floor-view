@@ -62,6 +62,12 @@ export interface PointLayer {
   label?: (point: PointDatum) => string | null | undefined;
   /** Show the `label`s. Default true. Toggle with `updateLayer(id, { showLabels })`. */
   showLabels?: boolean;
+  /**
+   * Show the layer: points, labels, rings and beams. Default true. Toggle with
+   * `updateLayer(id, { visible })`; hiding keeps every object (nothing is rebuilt) and makes the
+   * points unpickable.
+   */
+  visible?: boolean;
 }
 
 export interface HeatmapPoint {

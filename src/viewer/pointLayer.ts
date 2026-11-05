@@ -87,6 +87,7 @@ export class PointLayerView {
   // Beam resources, created with the first beam.
   private beamShared: { column: THREE.CylinderGeometry; pulse: THREE.RingGeometry; gradient: THREE.DataTexture } | null = null;
   private beams = 0;
+  private visible = true;
   private readonly torus = new THREE.TorusGeometry(1, 0.09, 8, 40).rotateX(Math.PI / 2);
 
   constructor(
@@ -100,6 +101,8 @@ export class PointLayerView {
    * (level id → wall height) sets the beam height; default 3 m.
    */
   sync(layer: PointLayer, levelIds: ReadonlySet<string>, defaultColor: string, levelHeights?: ReadonlyMap<string, number>): void {
+    this.visible = layer.visible ?? true;
+    for (const group of this.groups.values()) group.visible = this.visible;
     const seen = new Set<string>();
     for (const point of layer.points) {
       if (!levelIds.has(point.levelId) || seen.has(point.id)) continue;
@@ -133,7 +136,7 @@ export class PointLayerView {
 
   /** Whether a beam is shown on one of `levelIds`, i.e. whether the beams need animation frames. */
   hasBeams(levelIds: ReadonlySet<string>): boolean {
-    if (this.beams === 0) return false;
+    if (this.beams === 0 || !this.visible) return false;
     for (const item of this.items.values()) if (item.beam && levelIds.has(item.levelId)) return true;
     return false;
   }
@@ -186,6 +189,7 @@ export class PointLayerView {
     if (!group) {
       group = new THREE.Group();
       group.name = `layer:${this.layerId}`;
+      group.visible = this.visible;
       this.groups.set(levelId, group);
       this.attach(levelId, group);
     }

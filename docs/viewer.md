@@ -26,7 +26,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `getPlan()` | A copy of the shown plan, or `null`. |
 | `setMode('2d' \| '3d')` / `getMode()` | Switch cameras and refit. In 2D with `level: 'all'`, only the lowest level is shown. |
 | `setLevel(id \| 'all')` / `getLevel()` | Choose which levels are visible. |
-| `setShowLabels(boolean)` | Toggle room labels. |
+| `setShowLabels(boolean)` | Toggle the plan's labels, which are the room names. Point layer labels are separate (`showLabels` on the layer). |
 | `setUnderlay({ url, x, y, width, height, opacity? } \| null, levelId?)` | Show a reference image on a level's floor, under the rooms (default: first level). Kept across `setPlan`. |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
 | `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. Replacing a points or heatmap layer with the same type updates it in place (see [Live updates](#live-updates)). |
@@ -85,12 +85,14 @@ viewer.setLayer({
   tooltip: (p) => `${p.data?.temp} °C`,
   label: (p) => `${p.data?.temp} °C`, // persistent text above each point (optional)
   showLabels: true,                   // default true; toggle with updateLayer('sensors', { showLabels: false })
+  visible: true,                      // default true; hide the whole layer with updateLayer('sensors', { visible: false })
 });
 ```
 
 Points with an unknown `levelId` are skipped. Clicking a point gives `target.kind === 'point'` and `target.layerId`.
 
 - **Labels.** `label(point)` returns plain text shown permanently above the point (null for none), e.g. a live reading. They are independent of the plan's room labels (`setShowLabels`) and styled by `.vl-viewer__point-label` (`--vl-point-label`, `--vl-point-label-bg`).
+- **Visibility.** `updateLayer(id, { visible: false })` hides the layer's points, labels, rings and beams without rebuilding anything (and stops its beams' animation frames); hidden points can't be hovered or clicked. Room names are toggled separately with `setShowLabels`, so a host can hide room names while keeping point labels, or the reverse.
 - **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`.
 - **Beam.** `beam: '#dc2626'` on a point adds an animated alert beam in that color: in 3D a translucent light column from the floor to the level's wall height (fading toward the top) plus a pulsing ground ring; in 2D an expanding, fading ring. While at least one beam is on a shown level the viewer renders every frame; with none it goes back to on-demand rendering. Under `prefers-reduced-motion: reduce` the column and ring are static (and the viewer stays on demand). `null`/omitted means no beam; removing the point or its beam frees it.
 - **Ring.** `ring: '#dc2626'` on a point draws an outline ring around it in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
