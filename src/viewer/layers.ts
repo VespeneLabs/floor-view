@@ -27,6 +27,12 @@ export interface PointDatum {
   shape?: PointShape;
   /** Outline ring color around the point, e.g. for alert state independent of the fill color. Null/undefined: no ring. */
   ring?: string | null;
+  /**
+   * Alert beam color (any CSS color). 3D: a translucent light column from the floor to the level's
+   * wall height plus a pulsing ground ring; 2D: an expanding, fading ring. Static under
+   * `prefers-reduced-motion`. Null/undefined: no beam.
+   */
+  beam?: string | null;
   data?: Record<string, unknown>;
 }
 

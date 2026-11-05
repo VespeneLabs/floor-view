@@ -92,13 +92,14 @@ Points with an unknown `levelId` are skipped. Clicking a point gives `target.kin
 
 - **Labels.** `label(point)` returns plain text shown permanently above the point (null for none), e.g. a live reading. They are independent of the plan's room labels (`setShowLabels`) and styled by `.vl-viewer__point-label` (`--vl-point-label`, `--vl-point-label-bg`).
 - **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`.
+- **Beam.** `beam: '#dc2626'` on a point adds an animated alert beam in that color: in 3D a translucent light column from the floor to the level's wall height (fading toward the top) plus a pulsing ground ring; in 2D an expanding, fading ring. While at least one beam is on a shown level the viewer renders every frame; with none it goes back to on-demand rendering. Under `prefers-reduced-motion: reduce` the column and ring are static (and the viewer stays on demand). `null`/omitted means no beam; removing the point or its beam frees it.
 - **Ring.** `ring: '#dc2626'` on a point draws an outline ring around it in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
 
 ### Live updates
 
 Call `setLayer` (or `updateLayer`) again with the same `id` whenever values change. For points and heatmaps this doesn't rebuild the scene:
 
-- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, color, size, shape, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
+- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, color, size, shape, beam, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
 - **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
 
 ```ts
