@@ -14,7 +14,7 @@ export type { FocusOptions, FocusTarget } from './viewer/focus';
 export { DEFAULT_SCENE_COLORS } from './viewer/sceneBuilder';
 export { toThreeColor } from './viewer/color';
 
-export { FloorplanEditor } from './editor/Editor';
-export type { EditorEvents, EditorOptions, EditorTool } from './editor/Editor';
+export { ALL_EDITOR_TOOLS, FloorplanEditor } from './editor/Editor';
+export type { EditorEvents, EditorOptions, EditorTool, OverlayPoint, OverlayPointMove } from './editor/Editor';
 
 export const VERSION = '0.1.0';
