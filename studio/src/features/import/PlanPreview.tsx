@@ -1,8 +1,8 @@
 import { FloorplanViewer, type ViewMode } from '@vespenelabs/floorview';
+import type { Scan } from '@vespenelabs/floorview/architect';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import type { Proposal } from './useArchitect';
-import type { Scan } from './scan';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useViewerTheme } from '@/features/viewer/useViewerTheme';

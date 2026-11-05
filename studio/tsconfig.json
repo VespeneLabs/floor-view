@@ -10,5 +10,5 @@
       "@vespenelabs/floorview/*": ["../src/*/index.ts"]
     }
   },
-  "include": ["src", "server", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"]
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { convertProposal } from '../studio/src/features/import/plan-conversion';
+import { convertProposal } from '@vespenelabs/floorview/architect';
 
 const image = { width: 1000, height: 600 };
 

@@ -1,4 +1,4 @@
-import type { FloorPlan } from '@vespenelabs/floorview';
+import type { FloorPlan } from '../model/types';
 
 /**
  * Preparing scans for the assistant. Images are scaled to fit the model's vision limits
@@ -21,7 +21,8 @@ export interface Scan {
   height: number;
 }
 
-export const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+/** Image types `prepareScan` accepts. */
+export const ACCEPTED_SCAN_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -44,8 +45,12 @@ function encode(canvas: HTMLCanvasElement): Pick<Scan, 'dataUrl' | 'base64' | 'm
   return { dataUrl, base64: dataUrl.slice(dataUrl.indexOf(',') + 1), mediaType };
 }
 
+/**
+ * Reads an uploaded image, flattens transparency onto white and scales it to the model's vision
+ * limits. Browser only (uses an <img> and a canvas).
+ */
 export async function prepareScan(file: File): Promise<Scan> {
-  if (!ACCEPTED_TYPES.includes(file.type)) {
+  if (!ACCEPTED_SCAN_TYPES.includes(file.type)) {
     throw new Error('Please upload a PNG, JPG or WebP image. For a PDF, export the page as an image first.');
   }
   const url = URL.createObjectURL(file);
@@ -72,7 +77,7 @@ export async function prepareScan(file: File): Promise<Scan> {
  * The proposed plan drawn over the scan (walls red, room outlines blue, markers green), at most
  * `maxEdge` px, for the assistant to check its own geometry against the drawing.
  */
-export async function renderOverlay(scan: Scan, plan: FloorPlan, metersPerPixel: number, maxEdge = 1600): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
+export async function renderProposalOverlay(scan: Scan, plan: FloorPlan, metersPerPixel: number, maxEdge = 1600): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
   const img = await loadImage(scan.dataUrl);
   const k = Math.min(1, maxEdge / Math.max(scan.width, scan.height));
   const canvas = document.createElement('canvas');
