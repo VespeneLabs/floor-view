@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Floorview Studio</title>
+    <script>
+      // Apply the theme before first paint (no flash). src/lib/theme.ts owns the key and logic.
+      (function () {
+        var theme;
+        try {
+          theme = localStorage.getItem('vespenelabs.theme');
+        } catch (_) {}
+        if (theme !== 'light' && theme !== 'dark') theme = 'dark'; // DEFAULT_THEME
+        document.documentElement.classList.toggle('dark', theme === 'dark');
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,603 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
+import { Emitter } from '../core/emitter';
+import { clonePlan } from '../model/plan';
+import type { FloorPlan, Level, Point, Underlay } from '../model/types';
+import { toThreeColor } from './color';
+import { buildHeatmapMesh, rasterizeHeatmap } from './heatmap';
+import type { DataLayer, PointLayer, RoomLayer } from './layers';
+import {
+  buildPlan,
+  buildPointLayer,
+  DEFAULT_SCENE_COLORS,
+  disposeObject,
+  type BuiltLevel,
+  type PickInfo,
+  type SceneColors,
+} from './sceneBuilder';
+
+export type ViewMode = '2d' | '3d';
+/** A level id, or `'all'` to show every level stacked (3D only). */
+export type LevelSelection = string | 'all';
+
+export interface ViewerOptions {
+  plan?: FloorPlan;
+  mode?: ViewMode;
+  level?: LevelSelection;
+  background?: string;
+  showLabels?: boolean;
+  colors?: Partial<SceneColors>;
+}
+
+export interface PickEvent {
+  /** The entity or data point under the pointer, or null for empty space. */
+  target: PickInfo | null;
+  /** Pointer position projected onto the plan (meters), or null if it missed the floor. */
+  point: Point | null;
+  originalEvent: PointerEvent;
+}
+
+export interface ViewerEvents {
+  click: PickEvent;
+  /** Fired when the hovered target changes (including to null). */
+  hover: PickEvent;
+  modechange: ViewMode;
+  levelchange: LevelSelection;
+}
+
+/** Max pointer travel (px) between down and up that still counts as a click. */
+const CLICK_TOLERANCE = 4;
+const HOVER_EMISSIVE = new THREE.Color('#2a3550');
+
+/**
+ * Interactive 2D/3D floor plan viewer backed by Three.js.
+ *
+ * ```ts
+ * const viewer = new FloorplanViewer(document.getElementById('app')!, { plan, mode: '3d' });
+ * viewer.on('click', (e) => console.log(e.target));
+ * ```
+ */
+export class FloorplanViewer {
+  readonly element: HTMLDivElement;
+
+  private readonly events = new Emitter<ViewerEvents>();
+  private readonly renderer: THREE.WebGLRenderer;
+  private readonly labelRenderer: CSS2DRenderer;
+  private readonly tooltip: HTMLDivElement;
+  private readonly scene = new THREE.Scene();
+  private readonly planGroup = new THREE.Group();
+  private readonly perspective = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
+  private readonly ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 5000);
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly resizeObserver: ResizeObserver;
+  private readonly colors: SceneColors;
+
+  private controls: OrbitControls;
+  private plan: FloorPlan | null = null;
+  private built: BuiltLevel[] = [];
+  private layers: DataLayer[] = [];
+  private layerGroups = new Map<string, THREE.Group[]>();
+  private underlay: { spec: Underlay; levelId?: string; mesh: THREE.Mesh } | null = null;
+  private mode: ViewMode;
+  private level: LevelSelection;
+  private showLabels: boolean;
+  private hovered: PickInfo | null = null;
+  private hoveredMesh: THREE.Mesh | null = null;
+  private downAt: { x: number; y: number } | null = null;
+  private frame = 0;
+  private dirty = true;
+  private disposed = false;
+
+  constructor(container: HTMLElement, options: ViewerOptions = {}) {
+    this.mode = options.mode ?? '3d';
+    this.level = options.level ?? 'all';
+    this.showLabels = options.showLabels ?? true;
+    this.colors = { ...DEFAULT_SCENE_COLORS, ...options.colors };
+
+    this.element = document.createElement('div');
+    this.element.className = 'vl-viewer';
+    container.appendChild(this.element);
+
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.element.appendChild(this.renderer.domElement);
+
+    this.labelRenderer = new CSS2DRenderer();
+    this.labelRenderer.domElement.className = 'vl-viewer__labels';
+    this.element.appendChild(this.labelRenderer.domElement);
+
+    this.tooltip = document.createElement('div');
+    this.tooltip.className = 'vl-viewer__tooltip';
+    this.tooltip.hidden = true;
+    this.element.appendChild(this.tooltip);
+
+    this.scene.background = toThreeColor(options.background ?? '#f8fafc');
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x94a3b8, 2.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
+    sun.position.set(20, 40, 25);
+    this.scene.add(sun);
+    this.scene.add(this.planGroup);
+
+    this.controls = this.createControls();
+
+    const canvas = this.renderer.domElement;
+    canvas.addEventListener('pointerdown', this.onPointerDown);
+    canvas.addEventListener('pointerup', this.onPointerUp);
+    canvas.addEventListener('pointermove', this.onPointerMove);
+    canvas.addEventListener('pointerleave', this.onPointerLeave);
+
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(this.element);
+    this.resize();
+
+    if (options.plan) this.setPlan(options.plan, { fit: true });
+    this.frame = requestAnimationFrame(this.loop);
+  }
+
+  // ---------------------------------------------------------------- public API
+
+  on<K extends keyof ViewerEvents>(type: K, handler: (payload: ViewerEvents[K]) => void): () => void {
+    return this.events.on(type, handler);
+  }
+
+  off<K extends keyof ViewerEvents>(type: K, handler: (payload: ViewerEvents[K]) => void): void {
+    this.events.off(type, handler);
+  }
+
+  /** Returns a copy of the displayed plan. */
+  getPlan(): FloorPlan | null {
+    return this.plan ? clonePlan(this.plan) : null;
+  }
+
+  /**
+   * Replace the displayed plan. The camera is kept unless `fit` is true
+   * (default: fit only when no plan was shown before).
+   */
+  setPlan(plan: FloorPlan, { fit }: { fit?: boolean } = {}): void {
+    const first = this.plan === null;
+    this.clearPlan();
+    this.plan = clonePlan(plan);
+    if (this.level !== 'all' && !this.plan.levels.some((l) => l.id === this.level)) {
+      this.level = this.plan.levels[0]?.id ?? 'all';
+    }
+    this.built = buildPlan(this.plan, this.colors);
+    for (const b of this.built) {
+      this.planGroup.add(b.group);
+      for (const anchor of b.labelAnchors) {
+        const el = document.createElement('div');
+        el.className = 'vl-viewer__label';
+        el.textContent = anchor.text;
+        const label = new CSS2DObject(el);
+        label.position.copy(anchor.position);
+        label.name = 'label';
+        label.visible = this.showLabels;
+        b.group.add(label);
+      }
+    }
+    for (const layer of this.layers) this.applyLayer(layer);
+    this.attachUnderlay();
+    this.applyRoomColors();
+    this.applyLevelVisibility();
+    if (fit ?? first) this.fitView();
+    this.requestRender();
+  }
+
+  getMode(): ViewMode {
+    return this.mode;
+  }
+
+  setMode(mode: ViewMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.controls.dispose();
+    this.controls = this.createControls();
+    this.applyLevelVisibility();
+    this.fitView();
+    this.events.emit('modechange', mode);
+  }
+
+  getLevel(): LevelSelection {
+    return this.level;
+  }
+
+  setLevel(level: LevelSelection): void {
+    if (level === this.level) return;
+    this.level = level;
+    this.applyLevelVisibility();
+    this.requestRender();
+    this.events.emit('levelchange', level);
+  }
+
+  /**
+   * Show a reference image (e.g. a scanned drawing) on the floor of a level (default: the first
+   * level), under the rooms. Pass null to remove it.
+   */
+  setUnderlay(underlay: Underlay | null, levelId?: string): void {
+    this.removeUnderlay();
+    if (!underlay) {
+      this.requestRender();
+      return;
+    }
+    const texture = new THREE.TextureLoader().load(underlay.url, () => this.requestRender());
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const geometry = new THREE.PlaneGeometry(underlay.width, underlay.height);
+    // Same mapping as room floors: plane y -> world z. Flip V so the image's top row sits at the smallest plan y.
+    geometry.rotateX(Math.PI / 2);
+    texture.flipY = false;
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: underlay.opacity ?? 0.5,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(underlay.x + underlay.width / 2, 0.01, underlay.y + underlay.height / 2);
+    mesh.raycast = () => undefined;
+    mesh.renderOrder = -1;
+    this.underlay = { spec: { ...underlay }, levelId, mesh };
+    this.attachUnderlay();
+    this.requestRender();
+  }
+
+  /** Change the scene background (any CSS color), e.g. when the host app switches theme. */
+  setBackground(color: string): void {
+    toThreeColor(color, this.scene.background as THREE.Color);
+    this.requestRender();
+  }
+
+  setShowLabels(show: boolean): void {
+    this.showLabels = show;
+    for (const b of this.built) b.group.children.forEach((c) => c.name === 'label' && (c.visible = show));
+    this.requestRender();
+  }
+
+  getLayers(): readonly DataLayer[] {
+    return this.layers;
+  }
+
+  /** Add a data layer, or replace the layer with the same id. */
+  setLayer(layer: DataLayer): void {
+    this.removeLayerObjects(layer.id);
+    const index = this.layers.findIndex((l) => l.id === layer.id);
+    if (index >= 0) this.layers[index] = layer;
+    else this.layers.push(layer);
+    this.applyLayer(layer);
+    this.applyRoomColors();
+    this.refreshTooltip();
+    this.requestRender();
+  }
+
+  removeLayer(id: string): void {
+    this.removeLayerObjects(id);
+    this.layers = this.layers.filter((l) => l.id !== id);
+    this.applyRoomColors();
+    this.refreshTooltip();
+    this.requestRender();
+  }
+
+  /** Frame the visible part of the plan. */
+  fitView(): void {
+    const box = new THREE.Box3();
+    for (const b of this.built) if (b.group.visible) box.expandByObject(b.group);
+    if (box.isEmpty()) box.set(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 3, 5));
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+
+    if (this.mode === '3d') {
+      const radius = Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1);
+      const distance = (radius / Math.sin(THREE.MathUtils.degToRad(this.perspective.fov / 2))) * 1.05;
+      const direction = new THREE.Vector3(0.55, 1, 0.9).normalize();
+      this.perspective.position.copy(center).addScaledVector(direction, distance);
+      this.perspective.near = Math.max(distance / 1000, 0.05);
+      this.perspective.far = distance * 20;
+      this.perspective.updateProjectionMatrix();
+    } else {
+      const aspect = this.aspect();
+      let halfW = (size.x / 2) * 1.1 + 0.5;
+      let halfH = (size.z / 2) * 1.1 + 0.5;
+      if (halfW / halfH < aspect) halfW = halfH * aspect;
+      else halfH = halfW / aspect;
+      Object.assign(this.ortho, { left: -halfW, right: halfW, top: halfH, bottom: -halfH, zoom: 1 });
+      // A tiny +z offset keeps the camera "up" well defined: screen-up becomes world -z (plan -y).
+      this.ortho.position.set(center.x, box.max.y + 100, center.z + 1e-3);
+      this.ortho.updateProjectionMatrix();
+    }
+    this.controls.target.copy(center);
+    this.controls.update();
+    this.requestRender();
+  }
+
+  /** PNG data URL of the current view. */
+  screenshot(): string {
+    this.render();
+    return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    cancelAnimationFrame(this.frame);
+    this.resizeObserver.disconnect();
+    this.controls.dispose();
+    this.removeUnderlay();
+    this.clearPlan();
+    this.renderer.dispose();
+    this.events.clear();
+    this.element.remove();
+  }
+
+  // ---------------------------------------------------------------- internals
+
+  private get camera(): THREE.Camera {
+    return this.mode === '3d' ? this.perspective : this.ortho;
+  }
+
+  private createControls(): OrbitControls {
+    const controls = new OrbitControls(this.mode === '3d' ? this.perspective : this.ortho, this.renderer.domElement);
+    controls.enableRotate = this.mode === '3d';
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    controls.screenSpacePanning = true;
+    controls.addEventListener('change', () => this.requestRender());
+    return controls;
+  }
+
+  private aspect(): number {
+    const { clientWidth: w, clientHeight: h } = this.element;
+    return w > 0 && h > 0 ? w / h : 1;
+  }
+
+  private resize(): void {
+    const { clientWidth: w, clientHeight: h } = this.element;
+    if (w === 0 || h === 0) return;
+    this.renderer.setSize(w, h);
+    this.labelRenderer.setSize(w, h);
+    const aspect = w / h;
+    this.perspective.aspect = aspect;
+    this.perspective.updateProjectionMatrix();
+    const halfH = (this.ortho.top - this.ortho.bottom) / 2;
+    this.ortho.left = -halfH * aspect;
+    this.ortho.right = halfH * aspect;
+    this.ortho.updateProjectionMatrix();
+    this.requestRender();
+  }
+
+  private requestRender(): void {
+    this.dirty = true;
+  }
+
+  private loop = (): void => {
+    this.frame = requestAnimationFrame(this.loop);
+    if (this.dirty) this.render();
+  };
+
+  private render(): void {
+    this.dirty = false;
+    this.renderer.render(this.scene, this.camera);
+    this.labelRenderer.render(this.scene, this.camera);
+  }
+
+  private attachUnderlay(): void {
+    if (!this.underlay) return;
+    const target = this.built.find((b) => b.levelId === this.underlay?.levelId) ?? this.built[0];
+    if (target) target.group.add(this.underlay.mesh);
+  }
+
+  private removeUnderlay(): void {
+    if (!this.underlay) return;
+    this.underlay.mesh.removeFromParent();
+    disposeObject(this.underlay.mesh);
+    this.underlay = null;
+  }
+
+  private clearPlan(): void {
+    // The underlay outlives plan rebuilds: detach it before the level groups are disposed.
+    this.underlay?.mesh.removeFromParent();
+    for (const id of [...this.layerGroups.keys()]) this.removeLayerObjects(id);
+    for (const b of this.built) {
+      disposeObject(b.group);
+      this.planGroup.remove(b.group);
+    }
+    this.built = [];
+    this.hovered = null;
+    this.hoveredMesh = null;
+    this.tooltip.hidden = true;
+  }
+
+  private visibleLevelIds(): Set<string> {
+    if (!this.plan) return new Set();
+    if (this.level !== 'all') return new Set([this.level]);
+    // 2D shows one level at a time; with 'all' selected, show the lowest one.
+    if (this.mode === '2d') {
+      const lowest = [...this.plan.levels].sort((a, b) => a.elevation - b.elevation)[0];
+      return new Set(lowest ? [lowest.id] : []);
+    }
+    return new Set(this.plan.levels.map((l) => l.id));
+  }
+
+  private applyLevelVisibility(): void {
+    const visible = this.visibleLevelIds();
+    for (const b of this.built) b.group.visible = visible.has(b.levelId);
+  }
+
+  private levelById(id: string): Level | undefined {
+    return this.plan?.levels.find((l) => l.id === id);
+  }
+
+  private applyLayer(layer: DataLayer): void {
+    if (!this.plan) return;
+    if (layer.type === 'points') {
+      const groups = buildPointLayer(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point);
+      for (const [levelId, group] of groups) this.built.find((b) => b.levelId === levelId)?.group.add(group);
+      this.layerGroups.set(layer.id, [...groups.values()]);
+    } else if (layer.type === 'heatmap') {
+      const groups: THREE.Group[] = [];
+      for (const b of this.built) {
+        const level = this.levelById(b.levelId);
+        const raster = level && rasterizeHeatmap(level, layer);
+        if (!raster) continue;
+        const group = new THREE.Group();
+        group.name = `layer:${layer.id}`;
+        group.add(buildHeatmapMesh(raster, layer.elevation));
+        b.group.add(group);
+        groups.push(group);
+      }
+      this.layerGroups.set(layer.id, groups);
+    }
+  }
+
+  private removeLayerObjects(id: string): void {
+    for (const group of this.layerGroups.get(id) ?? []) {
+      disposeObject(group);
+      group.removeFromParent();
+    }
+    this.layerGroups.delete(id);
+    if (this.hovered?.layerId === id) {
+      this.hovered = null;
+      this.hoveredMesh = null;
+      this.tooltip.hidden = true;
+    }
+  }
+
+  /** Recompute every room floor color from its base color and the room layers. */
+  private applyRoomColors(): void {
+    const roomLayers = this.layers.filter((l): l is RoomLayer => l.type === 'rooms');
+    for (const b of this.built) {
+      const level = this.levelById(b.levelId);
+      if (!level) continue;
+      for (const room of level.rooms) {
+        const mesh = b.rooms.get(room.id);
+        if (!mesh) continue;
+        let color: string = mesh.userData.baseColor;
+        let opacity = 1;
+        for (const layer of roomLayers) {
+          const c = layer.color(room, level);
+          if (c) {
+            color = c;
+            opacity = layer.opacity ?? 0.85;
+          }
+        }
+        toThreeColor(color, mesh.material.color);
+        mesh.material.opacity = opacity;
+        mesh.material.transparent = opacity < 1;
+      }
+    }
+  }
+
+  private tooltipFor(pick: PickInfo): string | null {
+    const level = this.levelById(pick.levelId);
+    if (!level) return null;
+    if (pick.kind === 'room') {
+      const room = level.rooms.find((r) => r.id === pick.id);
+      if (!room) return null;
+      // Last room layer with a tooltip for this room wins, mirroring color precedence.
+      for (const layer of [...this.layers].reverse()) {
+        if (layer.type === 'rooms' && layer.tooltip) {
+          const text = layer.tooltip(room, level);
+          if (text) return text;
+        }
+      }
+      return null;
+    }
+    if (pick.kind === 'point') {
+      const layer = this.layers.find((l): l is PointLayer => l.id === pick.layerId && l.type === 'points');
+      const point = layer?.points.find((p) => p.id === pick.id);
+      return (point && layer?.tooltip?.(point)) || null;
+    }
+    if (pick.kind === 'marker') return level.markers.find((m) => m.id === pick.id)?.name || null;
+    return null;
+  }
+
+  /** Live data changed under an open tooltip: update its text in place (or hide it). */
+  private refreshTooltip(): void {
+    if (this.tooltip.hidden) return;
+    const text = this.hovered ? this.tooltipFor(this.hovered) : null;
+    if (text) this.tooltip.textContent = text;
+    else this.tooltip.hidden = true;
+  }
+
+  private pick(event: PointerEvent): { target: PickInfo | null; mesh: THREE.Mesh | null; point: Point | null } {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.raycaster.setFromCamera(ndc, this.camera);
+
+    const candidates: THREE.Object3D[] = [];
+    for (const b of this.built) {
+      if (!b.group.visible) continue;
+      b.group.traverseVisible((o) => {
+        if (o.userData.pick) candidates.push(o);
+      });
+    }
+    const hit = this.raycaster.intersectObjects(candidates, false)[0];
+    if (hit) {
+      return {
+        target: { ...(hit.object.userData.pick as PickInfo) },
+        mesh: hit.object as THREE.Mesh,
+        point: { x: hit.point.x, y: hit.point.z },
+      };
+    }
+
+    // Missed everything: project onto the floor of the lowest visible level.
+    const visible = this.built.filter((b) => b.group.visible);
+    const floorY = visible.length ? Math.min(...visible.map((b) => b.group.position.y)) : 0;
+    const hitPoint = new THREE.Vector3();
+    const onFloor = this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -floorY), hitPoint);
+    return { target: null, mesh: null, point: onFloor ? { x: hitPoint.x, y: hitPoint.z } : null };
+  }
+
+  private setHover(mesh: THREE.Mesh | null): void {
+    const setEmissive = (m: THREE.Mesh | null, color: THREE.Color | number) => {
+      const mat = m?.material as THREE.MeshStandardMaterial | undefined;
+      if (mat?.emissive) mat.emissive.set(color);
+    };
+    setEmissive(this.hoveredMesh, 0x000000);
+    setEmissive(mesh, HOVER_EMISSIVE);
+    this.hoveredMesh = mesh;
+    this.requestRender();
+  }
+
+  private onPointerDown = (event: PointerEvent): void => {
+    this.downAt = { x: event.clientX, y: event.clientY };
+  };
+
+  private onPointerUp = (event: PointerEvent): void => {
+    if (!this.downAt) return;
+    const moved = Math.hypot(event.clientX - this.downAt.x, event.clientY - this.downAt.y);
+    this.downAt = null;
+    if (moved > CLICK_TOLERANCE) return;
+    const { target, point } = this.pick(event);
+    this.events.emit('click', { target, point, originalEvent: event });
+  };
+
+  private onPointerMove = (event: PointerEvent): void => {
+    if (event.buttons !== 0) return; // dragging the camera
+    const { target, mesh, point } = this.pick(event);
+    const changed = target?.kind !== this.hovered?.kind || target?.id !== this.hovered?.id;
+    if (changed) {
+      this.hovered = target;
+      this.setHover(target?.kind === 'wall' ? null : mesh);
+      this.renderer.domElement.style.cursor = target && target.kind !== 'wall' ? 'pointer' : '';
+      this.events.emit('hover', { target, point, originalEvent: event });
+    }
+    const text = target ? this.tooltipFor(target) : null;
+    this.tooltip.hidden = !text;
+    if (text) {
+      const rect = this.element.getBoundingClientRect();
+      this.tooltip.textContent = text;
+      this.tooltip.style.transform = `translate(${event.clientX - rect.left + 14}px, ${event.clientY - rect.top + 14}px)`;
+    }
+  };
+
+  private onPointerLeave = (event: PointerEvent): void => {
+    this.tooltip.hidden = true;
+    if (this.hovered) {
+      this.hovered = null;
+      this.setHover(null);
+      this.events.emit('hover', { target: null, point: null, originalEvent: event });
+    }
+  };
+}

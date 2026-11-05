@@ -1,0 +1,139 @@
+/* Floorview — component styles. Override the custom properties to theme. */
+.vl-viewer,
+.vl-editor {
+  --vl-font: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --vl-editor-bg: #f8fafc;
+  --vl-grid: #e2e8f0;
+  --vl-grid-major: #cbd5e1;
+  --vl-wall: #334155;
+  --vl-room: #dbe3ec;
+  --vl-room-stroke: #94a3b8;
+  --vl-marker: #6366f1;
+  --vl-marker-stroke: #ffffff;
+  --vl-selection: #2563eb;
+  --vl-draft: #0ea5e9;
+  --vl-snap: #f59e0b;
+  --vl-handle: var(--vl-selection);
+  --vl-label: #1e293b;
+  --vl-label-bg: rgb(255 255 255 / 0.85);
+  --vl-muted: #64748b;
+  --vl-tooltip-bg: #0f172a;
+  --vl-tooltip-fg: #f8fafc;
+
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--vl-font);
+}
+
+/* ---- viewer ---- */
+.vl-viewer canvas {
+  display: block;
+  touch-action: none;
+}
+
+.vl-viewer__labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.vl-viewer__label {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--vl-label-bg);
+  color: var(--vl-label);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vl-viewer__tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 240px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--vl-tooltip-bg);
+  color: var(--vl-tooltip-fg);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-line;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ---- editor ---- */
+.vl-editor {
+  background: var(--vl-editor-bg);
+  outline: none;
+  user-select: none;
+}
+
+.vl-editor__svg {
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.vl-editor[data-tool='select'] .vl-editor__svg { cursor: default; }
+.vl-editor[data-tool='pan'] .vl-editor__svg { cursor: grab; }
+.vl-editor.is-panning .vl-editor__svg { cursor: grabbing; }
+
+.vl-editor__grid line { stroke: var(--vl-grid); stroke-width: 1; }
+.vl-editor__underlay { pointer-events: none; }
+.vl-editor__grid line.is-major { stroke: var(--vl-grid-major); }
+
+.vl-editor__svg * { vector-effect: non-scaling-stroke; }
+/* Walls are stroked in world units (their thickness), so they must scale with the view. */
+.vl-editor__svg .vl-editor__wall,
+.vl-editor__svg .vl-editor__wall-selection { vector-effect: none; stroke-linecap: square; }
+
+.vl-editor__room { fill-opacity: 0.65; stroke: var(--vl-room-stroke); stroke-width: 1; }
+.vl-editor__room:not([fill]) { fill: var(--vl-room); }
+.vl-editor__room.is-selected { stroke: var(--vl-selection); stroke-width: 2; }
+
+.vl-editor__wall { stroke: var(--vl-wall); }
+.vl-editor__wall.is-draft { opacity: 0.4; }
+.vl-editor__wall-selection { stroke: var(--vl-selection); opacity: 0.5; }
+
+.vl-editor__marker { stroke: var(--vl-marker-stroke); stroke-width: 2; }
+.vl-editor__marker:not([fill]) { fill: var(--vl-marker); }
+.vl-editor__marker.is-selected { stroke: var(--vl-selection); stroke-width: 3; }
+
+.vl-editor__draft-area { fill: var(--vl-draft); fill-opacity: 0.15; }
+.vl-editor__draft-line { fill: none; stroke: var(--vl-draft); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.vl-editor__draft-point { fill: var(--vl-editor-bg); stroke: var(--vl-draft); stroke-width: 1.5; }
+.vl-editor__cursor { fill: none; stroke: var(--vl-draft); stroke-width: 2; }
+.vl-editor__cursor.is-snapped { stroke: var(--vl-snap); }
+
+.vl-editor__handle {
+  fill: var(--vl-editor-bg);
+  stroke: var(--vl-handle);
+  stroke-width: 2;
+  cursor: move;
+}
+
+/* A halo in the canvas color keeps labels readable on any room fill, in light and dark themes. */
+.vl-editor__label,
+.vl-editor__measure {
+  paint-order: stroke;
+  stroke: var(--vl-editor-bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+.vl-editor__label {
+  fill: var(--vl-label);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.vl-editor__sublabel,
+.vl-editor__measure {
+  fill: var(--vl-muted);
+  font-weight: 400;
+  pointer-events: none;
+}

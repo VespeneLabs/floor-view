@@ -1,0 +1,188 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * The data-attribute variants the shadcn/ui (base-nova) components use, inlined from
+ * shadcn/tailwind.css so the `shadcn` package isn't a dependency. Base UI sets these attributes.
+ */
+@custom-variant data-open {
+  &:where([data-state='open']),
+  &:where([data-open]:not([data-open='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-closed {
+  &:where([data-state='closed']),
+  &:where([data-closed]:not([data-closed='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-checked {
+  &:where([data-state='checked']),
+  &:where([data-checked]:not([data-checked='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-unchecked {
+  &:where([data-state='unchecked']),
+  &:where([data-unchecked]:not([data-unchecked='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-disabled {
+  &:where([data-disabled='true']),
+  &:where([data-disabled]:not([data-disabled='false'])) {
+    @slot;
+  }
+}
+@custom-variant data-horizontal {
+  &:where([data-orientation='horizontal']) {
+    @slot;
+  }
+}
+@custom-variant data-vertical {
+  &:where([data-orientation='vertical']) {
+    @slot;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-status-good: var(--status-good);
+  --color-status-moderate: var(--status-moderate);
+  --color-status-poor: var(--status-poor);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  /* VespeneLabs violet: logo, selection and drawing accents. */
+  --brand: oklch(0.541 0.247 293);
+  /* Canvas surface behind the editor and viewer. */
+  --canvas: oklch(0.985 0 0);
+  /* Shared status colors (air quality bands); always paired with a text label. */
+  --status-good: oklch(0.52 0.14 150);
+  --status-moderate: oklch(0.6 0.13 75);
+  --status-poor: oklch(0.55 0.2 27);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --brand: oklch(0.702 0.183 293.5);
+  --canvas: oklch(0.18 0 0);
+  --status-good: oklch(0.78 0.16 150);
+  --status-moderate: oklch(0.82 0.14 80);
+  --status-poor: oklch(0.7 0.19 25);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  /* Tailwind 4 gives buttons the default cursor; controls that act on click get the hand back. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='checkbox']:not([aria-disabled='true']),
+  [role='switch']:not([aria-disabled='true']),
+  [role='combobox']:not([aria-disabled='true']),
+  label[for] {
+    cursor: pointer;
+  }
+}
+
+/*
+ * Theme the library's editor and viewer from the app tokens. Unlayered and scoped under
+ * `.vl-studio` so it wins over the library's own (unlayered) defaults in both themes.
+ */
+.vl-studio .vl-editor,
+.vl-studio .vl-viewer {
+  --vl-font: inherit;
+  --vl-editor-bg: var(--canvas);
+  --vl-grid: color-mix(in oklch, var(--border), transparent 30%);
+  --vl-grid-major: color-mix(in oklch, var(--foreground) 18%, transparent);
+  --vl-wall: var(--foreground);
+  --vl-room-stroke: var(--muted-foreground);
+  --vl-marker: var(--brand);
+  --vl-marker-stroke: var(--canvas);
+  --vl-selection: var(--brand);
+  --vl-draft: var(--brand);
+  --vl-label: var(--foreground);
+  --vl-label-bg: color-mix(in oklch, var(--background) 85%, transparent);
+  --vl-muted: var(--muted-foreground);
+  --vl-tooltip-bg: var(--popover);
+  --vl-tooltip-fg: var(--popover-foreground);
+}
+
+.vl-studio .vl-viewer__tooltip {
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

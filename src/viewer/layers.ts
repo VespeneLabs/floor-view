@@ -1,0 +1,73 @@
+import type { Level, Point, Room } from '../model/types';
+
+/**
+ * Colors rooms from host data, e.g. occupancy or temperature.
+ * When several room layers return a color for the same room, the last added layer wins.
+ */
+export interface RoomLayer {
+  id: string;
+  type: 'rooms';
+  /** Return a CSS color, or null/undefined to leave the room unchanged. */
+  color: (room: Room, level: Level) => string | null | undefined;
+  /** Floor fill opacity for rooms this layer colors (0–1). Default 0.85. */
+  opacity?: number;
+  /** Hover tooltip text (plain text, not HTML). */
+  tooltip?: (room: Room, level: Level) => string | null | undefined;
+}
+
+export interface PointDatum {
+  id: string;
+  levelId: string;
+  position: Point;
+  color?: string;
+  /** Sphere radius in meters. */
+  size?: number;
+  data?: Record<string, unknown>;
+}
+
+/** Renders data points (sensors, people, assets…) as spheres on top of the plan. */
+export interface PointLayer {
+  id: string;
+  type: 'points';
+  points: PointDatum[];
+  /** Default color for points without their own. */
+  color?: string;
+  /** Default radius in meters. Default 0.25. */
+  size?: number;
+  /** Height above the level floor in meters. Default 1. */
+  elevation?: number;
+  tooltip?: (point: PointDatum) => string | null | undefined;
+}
+
+export interface HeatmapPoint {
+  levelId: string;
+  position: Point;
+  value: number;
+}
+
+/**
+ * A continuous surface interpolated from point values (inverse distance weighting), drawn on the
+ * floor, e.g. CO₂ or temperature from sensors. Rendered per level as a texture; not pickable, so
+ * hovering still reaches the rooms underneath (pair it with a room layer for tooltips).
+ */
+export interface HeatmapLayer {
+  id: string;
+  type: 'heatmap';
+  points: HeatmapPoint[];
+  /** Value → color stops (any CSS colors); values between stops are interpolated, outside are clamped. */
+  colorStops: { value: number; color: string }[];
+  /** Cell size in meters. Default 0.2 (capped at 512 cells per side). */
+  resolution?: number;
+  /** IDW power: higher = more local influence. Default 2. */
+  power?: number;
+  /** Cells farther than this (m) from every point stay transparent. Default: no limit. */
+  maxDistance?: number;
+  /** Only paint inside rooms. Default true. */
+  clipToRooms?: boolean;
+  /** 0–1. Default 0.8. */
+  opacity?: number;
+  /** Height above the level floor (m). Default 0.05. */
+  elevation?: number;
+}
+
+export type DataLayer = RoomLayer | PointLayer | HeatmapLayer;

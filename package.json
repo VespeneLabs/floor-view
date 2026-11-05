@@ -1,0 +1,56 @@
+{
+  "name": "@vespenelabs/floorview",
+  "version": "0.1.0",
+  "description": "Floorview: a floor plan viewer (2D/3D) and editor for the web, by VespeneLabs.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/vespenelabs-floorview.umd.cjs",
+  "module": "./dist/vespenelabs-floorview.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/vespenelabs-floorview.js",
+      "require": "./dist/vespenelabs-floorview.umd.cjs"
+    },
+    "./style.css": "./dist/vespenelabs-floorview.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite studio",
+    "dev:mock": "ARCHITECT_MOCK=1 vite studio",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "build:studio": "vite build studio",
+    "preview:studio": "vite preview studio",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p studio",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "three": ">=0.160.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "@base-ui/react": "^1.9.0",
+    "@tailwindcss/vite": "^4.3.4",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "@vitejs/plugin-react": "^6.2.1",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.5.2",
+    "jsdom": "^30.1.3",
+    "lucide-react": "^1.67.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.4",
+    "three": "^0.187.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
+  }
+}
