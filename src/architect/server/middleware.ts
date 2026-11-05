@@ -1,7 +1,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { ArchitectEvent } from '../protocol';
-import { ArchitectRequestError, parseArchitectRequest, runArchitectTurn, type ArchitectLimits, type ArchitectModel } from './run';
+import {
+  ArchitectRequestError,
+  parseArchitectRequest,
+  runArchitectTurn,
+  type ArchitectLimits,
+  type ArchitectModel,
+  type RunArchitectTurnOptions,
+} from './run';
 
 export interface ArchitectMiddlewareOptions {
   model: ArchitectModel;
@@ -13,6 +20,8 @@ export interface ArchitectMiddlewareOptions {
   /** Raw body limit in bytes, checked while reading. Default 25 MB. */
   maxBodyBytes?: number;
   onError?: (err: unknown) => void;
+  /** Token usage per completed turn (see `runArchitectTurn`). */
+  onUsage?: RunArchitectTurnOptions['onUsage'];
 }
 
 type Next = (err?: unknown) => void;
@@ -80,6 +89,7 @@ export function createArchitectMiddleware(options: ArchitectMiddlewareOptions) {
       limits: options.limits,
       signal: abort.signal,
       onError: options.onError,
+      onUsage: options.onUsage,
     })) {
       send(event);
     }

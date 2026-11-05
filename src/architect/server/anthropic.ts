@@ -64,7 +64,7 @@ function describeError(sdk: typeof Anthropic, err: unknown): { message: string; 
 export function createAnthropicArchitectModel(options: AnthropicArchitectModelOptions = {}): ArchitectModel {
   let client: Anthropic | undefined = options.client;
   return {
-    async *streamTurn(input, { signal }): AsyncGenerator<ArchitectEvent> {
+    async *streamTurn(input, { signal, onUsage }): AsyncGenerator<ArchitectEvent> {
       const sdk = (await loadSdk()).default;
       client ??= new sdk(options.apiKey ? { apiKey: options.apiKey } : {});
       const fallbacks = options.fallbacks ?? true;
@@ -106,6 +106,13 @@ export function createAnthropicArchitectModel(options: AnthropicArchitectModelOp
           }
         }
         const message = await stream.finalMessage();
+        onUsage?.({
+          model: message.model,
+          inputTokens: message.usage.input_tokens,
+          outputTokens: message.usage.output_tokens,
+          cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+          cacheWriteTokens: message.usage.cache_creation_input_tokens ?? 0,
+        });
         yield { type: 'done', content: message.content as unknown as ArchitectContentBlock[], stopReason: message.stop_reason };
       } catch (err) {
         if (err instanceof sdk.APIUserAbortError || signal.aborted) return;

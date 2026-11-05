@@ -8,7 +8,7 @@ export type * from '../protocol';
 export { ARCHITECT_SYSTEM, ARCHITECT_TOOL_DEFINITIONS } from './agent';
 export type { ArchitectToolDefinition } from './agent';
 export { ArchitectRequestError, DEFAULT_ARCHITECT_LIMITS, parseArchitectRequest, runArchitectTurn } from './run';
-export type { ArchitectLimits, ArchitectModel, ArchitectTurnInput, RunArchitectTurnOptions } from './run';
+export type { ArchitectLimits, ArchitectModel, ArchitectStreamOptions, ArchitectTurnInput, ArchitectUsage, RunArchitectTurnOptions } from './run';
 export { createArchitectMiddleware } from './middleware';
 export type { ArchitectMiddlewareOptions } from './middleware';
 export { createAnthropicArchitectModel, DEFAULT_ANTHROPIC_ARCHITECT_MODEL } from './anthropic';

@@ -148,14 +148,23 @@ describe('createAnthropicArchitectModel', () => {
               (async function* () {
                 yield* deltas;
               })(),
-              { finalMessage: async () => ({ content: [{ type: 'text', text: 'Hi' }], stop_reason: 'end_turn' }) },
+              {
+                finalMessage: async () => ({
+                  model: 'claude-opus-5-5',
+                  content: [{ type: 'text', text: 'Hi' }],
+                  stop_reason: 'end_turn',
+                  usage: { input_tokens: 12, output_tokens: 34, cache_read_input_tokens: 5000, cache_creation_input_tokens: 0 },
+                }),
+              },
             );
           },
         },
       },
     };
     const model = createAnthropicArchitectModel({ client: client as never, effort: 'medium' });
-    const events = await collect(runArchitectTurn({ messages: [user('hi')] }, model, { extraInstructions: 'Gas.' }));
+    const usage: unknown[] = [];
+    const events = await collect(runArchitectTurn({ messages: [user('hi')] }, model, { extraInstructions: 'Gas.', onUsage: (u) => usage.push(u) }));
+    expect(usage).toEqual([{ model: 'claude-opus-5-5', inputTokens: 12, outputTokens: 34, cacheReadTokens: 5000, cacheWriteTokens: 0 }]);
     expect(events).toEqual([
       { type: 'thinking', text: 'Reading' },
       { type: 'text', text: 'Hi' },

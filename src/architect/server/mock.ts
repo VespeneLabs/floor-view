@@ -85,10 +85,11 @@ export interface MockArchitectModelOptions {
 export function createMockArchitectModel(options: MockArchitectModelOptions = {}): ArchitectModel {
   const latency = options.latency ?? 1;
   return {
-    async *streamTurn({ messages }, { signal }) {
+    async *streamTurn({ messages }, { signal, onUsage }) {
       const sleep = (ms: number) => (latency > 0 ? new Promise((r) => setTimeout(r, ms * latency)) : Promise.resolve());
       for await (const event of mockTurn(messages, sleep)) {
         if (signal.aborted) return;
+        if (event.type === 'done') onUsage?.({ model: 'mock', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
         yield event;
       }
     },

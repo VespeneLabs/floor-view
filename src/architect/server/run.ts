@@ -9,13 +9,31 @@ export interface ArchitectTurnInput {
   messages: ArchitectMessage[];
 }
 
+/** Token usage of one model turn (server side only; never sent to the browser). */
+export interface ArchitectUsage {
+  /** The model that served the turn (after any fallback). */
+  model: string;
+  /** Uncached input tokens. */
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+export interface ArchitectStreamOptions {
+  signal: AbortSignal;
+  /** Called once per completed turn with its token usage. */
+  onUsage?: (usage: ArchitectUsage) => void;
+}
+
 /**
  * A model provider. `streamTurn` yields `text`/`thinking`/`tool_progress` events and ends with
  * exactly one `done` (the complete assistant content) or `error` (a user-facing message). It
- * should stop promptly when `signal` aborts. Unexpected throws become a generic retryable error.
+ * should stop promptly when `signal` aborts, and report token usage through `onUsage` when it
+ * knows it. Unexpected throws become a generic retryable error.
  */
 export interface ArchitectModel {
-  streamTurn(input: ArchitectTurnInput, options: { signal: AbortSignal }): AsyncIterable<ArchitectEvent>;
+  streamTurn(input: ArchitectTurnInput, options: ArchitectStreamOptions): AsyncIterable<ArchitectEvent>;
 }
 
 export interface ArchitectLimits {
@@ -109,6 +127,8 @@ export interface RunArchitectTurnOptions {
   limits?: Partial<ArchitectLimits>;
   /** Called with unexpected errors (adapter bugs, network failures) before they become a generic event. */
   onError?: (err: unknown) => void;
+  /** Token usage per completed turn, e.g. to log cost per tenant. Not part of the event stream. */
+  onUsage?: (usage: ArchitectUsage) => void;
 }
 
 /**
@@ -141,7 +161,7 @@ export async function* runArchitectTurn(
     messages: parsed.messages,
   };
   try {
-    for await (const event of model.streamTurn(input, { signal })) {
+    for await (const event of model.streamTurn(input, { signal, onUsage: options.onUsage })) {
       if (signal.aborted) return;
       yield event;
       if (event.type === 'done' || event.type === 'error') return;
