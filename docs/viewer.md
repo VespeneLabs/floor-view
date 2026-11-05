@@ -33,6 +33,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `updateLayer(id, patch)` | Merge `patch` into an existing layer and apply it like `setLayer`, e.g. `{ points }` or `{ showLabels: false }`. Returns false if there is no such layer. |
 | `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
 | `clearHighlight()` | Remove the focus highlight. |
+| `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the plan position is in the middle of the view without changing the zoom (2D) or the camera's distance and angle (3D: the orbit target moves to the position on the level's floor). Switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps; camera input cancels it. Returns false for an unknown level. |
 | `fitView()` | Frame the visible levels. |
 | `screenshot()` | PNG data URL of the current view. |
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |

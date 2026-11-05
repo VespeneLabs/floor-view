@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { FloorplanEditor } from '../src/editor/Editor';
 import { createPlan } from '../src/model/plan';
 import type { FloorPlan } from '../src/model/types';
@@ -259,5 +259,53 @@ describe('FloorplanEditor host integration', () => {
     editor = new FloorplanEditor(document.body, { tool: 'marker', readOnly: true });
     expect(editor.getTool()).toBe('select');
     expect(editor.isReadOnly()).toBe(true);
+  });
+
+  describe('centerOn', () => {
+    const view = (e: FloorplanEditor) => (e as unknown as { view: { scale: number; ox: number; oy: number } }).view;
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it('jumps to a position on another level, keeping the zoom', () => {
+      const { editor } = setup();
+      const upper = editor.addLevel('Upper');
+      const ground = editor.getPlan().levels[0]!.id;
+      expect(editor.centerOn({ levelId: ground, position: { x: 4, y: 2 } }, { animate: false })).toBe(true);
+      expect(editor.getActiveLevel().id).toBe(ground);
+      // 800×600 editor at 50 px/m: (4, 2) lands at the center (400, 300).
+      expect(view(editor)).toEqual({ scale: 50, ox: 200, oy: 200 });
+      expect(editor.centerOn({ levelId: 'nope', position: { x: 0, y: 0 } })).toBe(false);
+      expect(upper.id).not.toBe(ground);
+    });
+
+    it('eases there over the duration, and user zoom cancels it', () => {
+      vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+      const { editor } = setup();
+      const levelId = editor.getActiveLevel().id;
+      editor.centerOn({ levelId, position: { x: 4, y: 2 } }, { duration: 300 });
+      expect(view(editor).ox).toBe(0); // nothing moves until the first frame
+      vi.advanceTimersByTime(100);
+      const mid = view(editor).ox;
+      expect(mid).toBeGreaterThan(100); // ease-out: past half way after a third of the time
+      expect(mid).toBeLessThan(200);
+      vi.advanceTimersByTime(300);
+      expect(view(editor)).toEqual({ scale: 50, ox: 200, oy: 200 });
+
+      editor.centerOn({ levelId, position: { x: 0, y: 0 } });
+      vi.advanceTimersByTime(50);
+      editor.element.querySelector('svg')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, clientX: 400, clientY: 300, cancelable: true }));
+      const after = { ...view(editor) };
+      vi.advanceTimersByTime(500);
+      expect(view(editor)).toEqual(after); // cancelled
+    });
+
+    it('jumps under prefers-reduced-motion', () => {
+      vi.stubGlobal('matchMedia', (query: string) => ({ matches: query.includes('reduce'), addEventListener() {}, removeEventListener() {} }));
+      const { editor } = setup();
+      editor.centerOn({ levelId: editor.getActiveLevel().id, position: { x: 4, y: 2 } });
+      expect(view(editor)).toEqual({ scale: 50, ox: 200, oy: 200 });
+    });
   });
 });

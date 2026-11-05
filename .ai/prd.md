@@ -68,6 +68,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-EDT-10: Hosts can draw their own overlay points (e.g. sensors stored outside the plan) on top of the active level with a color and label. The user can select and drag them; the editor reports the dropped position (`overlaypointmove`) without changing the plan or its history.
 - FR-EDT-11: `clientToPlan(clientX, clientY)` converts viewport coordinates to a plan position on the active level, so hosts can accept drag-and-drop from outside the editor.
 - FR-EDT-12: Hosts can limit the available tools (`tools`) and switch the editor to read-only, where the user can select, pan and zoom but not change the plan.
+- FR-EDT-13: `centerOn({ levelId, position })` pans the editor the same way as the viewer's (FR-VIEW-09), keeping the zoom.
 
 ### 3.3 2D/3D viewer (Must)
 
@@ -78,6 +79,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-VIEW-05: Rendering happens on demand (only when something changed), to save battery and CPU. The one exception is visible alert beams (FR-LAY-08), which animate every frame.
 - FR-VIEW-06: The background color, an underlay image (textured plane) and `screenshot()` are available. `fitView()` frames the plan.
 - FR-VIEW-08: `focus(target)` centers the camera on a data point, room, wall, marker or position (switching level if needed) and highlights it with a ring or outline, e.g. for "Show on floor plan" links.
+- FR-VIEW-09: `centerOn({ levelId, position })` smoothly pans to a plan position (about 300 ms, ease-out) without changing the zoom or, in 3D, the camera distance and angle, switching level if needed. It can jump instead (`animate: false`) and always jumps under `prefers-reduced-motion`.
 - FR-VIEW-07: Colors in any CSS syntax (including `hsl()` with spaces and `oklch()`) are converted correctly for Three.js.
 
 ### 3.4 Data layers (Must)
