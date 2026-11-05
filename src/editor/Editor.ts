@@ -1,4 +1,5 @@
 import { Emitter } from '../core/emitter';
+import { POINT_GLYPHS, pointShape, type PointShape } from '../core/shapes';
 import { centerDuration, easeOutCubic, type CenterOnOptions, type CenterOnTarget } from '../core/motion';
 import { History } from '../core/history';
 import {
@@ -44,6 +45,13 @@ export interface OverlayPoint {
   position: Point;
   /** Fill color (any CSS color). Default: `--vl-overlay`. */
   color?: string;
+  /**
+   * Glyph, matching the viewer's 2D point glyphs: sphere → circle (default), box → square,
+   * cylinder → hexagon, cone → triangle, diamond → diamond.
+   */
+  shape?: PointShape;
+  /** Outline ring color around the point (e.g. alert state), like the viewer's `ring`. Null/undefined: none. */
+  ring?: string | null;
   /** Text shown next to the point. */
   label?: string;
   /** Can be dragged with the select tool. Default true. */
@@ -924,9 +932,15 @@ export class FloorplanEditor {
       const { x, y } = point.position;
       const selected = point.id === this.overlaySelection;
       const g = svg('g', { class: cls('vl-editor__overlay-point', selected), 'data-overlay-id': point.id }, this.world);
-      svg('circle', { cx: x, cy: y, r: OVERLAY_PX * px, fill: point.color }, g);
+      if (point.ring) svg('circle', { cx: x, cy: y, r: (OVERLAY_PX + 5) * px, stroke: point.ring, class: 'vl-editor__overlay-ring' }, g);
+      const shape = pointShape(point.shape);
+      const glyph = POINT_GLYPHS[shape];
+      const r = OVERLAY_PX * px;
+      const attrs = { fill: point.color, class: 'vl-editor__overlay-glyph', 'data-shape': shape };
+      if (glyph) svg('polygon', { ...attrs, points: pointsAttr(glyph.map((p) => ({ x: x + p.x * r, y: y + p.y * r }))) }, g);
+      else svg('circle', { ...attrs, cx: x, cy: y, r }, g);
       if (point.label) {
-        svg('text', { x: x + (OVERLAY_PX + 4) * px, y, 'font-size': 11 * px, 'dominant-baseline': 'central', class: 'vl-editor__overlay-label' }, g).textContent = point.label;
+        svg('text', { x: x + (OVERLAY_PX + (point.ring ? 10 : 4)) * px, y, 'font-size': 11 * px, 'dominant-baseline': 'central', class: 'vl-editor__overlay-label' }, g).textContent = point.label;
       }
     }
   }
