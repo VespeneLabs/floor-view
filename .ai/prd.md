@@ -88,6 +88,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-LAY-04: Layers are added, replaced and removed by ID. They are re-applied automatically when the plan changes, and an open tooltip refreshes when the layer data changes.
 - FR-LAY-05: Point layers can show a persistent text label per point (e.g. a live reading), toggled per layer independently of the plan's room labels, and an outline ring per point (e.g. alert state) separate from the fill color.
 - FR-LAY-06: Replacing a points or heatmap layer with new values updates the scene in place (points matched by ID, heatmap texture refilled with a cached room mask), so values can update every 1–5 s for about 100 points without rebuilding the scene. `updateLayer(id, patch)` merges a partial update.
+- FR-LAY-07: Points have a shape (sphere, box, cylinder, cone, diamond; layer default, per-point override), so kinds of items (e.g. sensors, gas inlets, consumers) can be told apart. Shapes are solids in 3D and distinct flat glyphs in 2D.
 
 ### 3.5 Floorview Studio: editor page (Must)
 

@@ -4,6 +4,7 @@ export * from './model/index';
 export { createSamplePlan } from './samples';
 export { Emitter } from './core/emitter';
 export { History } from './core/history';
+export { POINT_GLYPHS, POINT_SHAPES, type PointShape } from './core/shapes';
 
 export { FloorplanViewer } from './viewer/Viewer';
 export type { LevelSelection, PickEvent, ViewerEvents, ViewerOptions, ViewMode } from './viewer/Viewer';

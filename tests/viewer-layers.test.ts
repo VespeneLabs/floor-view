@@ -69,6 +69,39 @@ describe('PointLayerView', () => {
     expect(meshes(view)[0]!.userData.pick.levelId).toBe('level_first');
     expect(view.groups.get('level_ground')!.children).toHaveLength(0);
   });
+
+  it('draws shapes as solids in 3D and flat, pickable glyphs in 2D, swapping geometry in place', () => {
+    const view = new PointLayerView('sensors');
+    view.sync(layer([sensor('a', 1), sensor('b', 2, { shape: 'cone' })], { shape: 'box' }), LEVELS, '#f97316');
+    const [a, b] = meshes(view);
+    expect(a!.geometry).toBeInstanceOf(THREE.BoxGeometry); // layer default
+    expect(b!.geometry).toBeInstanceOf(THREE.ConeGeometry); // per-point override
+    expect(view.pointShape('a')).toBe('box');
+
+    view.sync(layer([sensor('a', 1, { shape: 'diamond' }), sensor('b', 2, { shape: 'cone' })], { shape: 'box' }), LEVELS, '#f97316');
+    expect(meshes(view)[0]).toBe(a); // same mesh, new geometry
+    expect(a!.geometry).toBeInstanceOf(THREE.OctahedronGeometry);
+
+    view.setMode('2d');
+    expect(a!.geometry).toBeInstanceOf(THREE.ShapeGeometry);
+    const box = new THREE.Box3().setFromBufferAttribute(a!.geometry.getAttribute('position') as THREE.BufferAttribute);
+    expect(box.max.y - box.min.y).toBeLessThan(1e-6); // flat
+    a!.updateMatrixWorld();
+    const down = new THREE.Raycaster(new THREE.Vector3(2.03, 10, 3.01), new THREE.Vector3(0, -1, 0));
+    expect(down.intersectObject(a!)[0]?.face?.normal.y).toBeCloseTo(1); // faces up, toward the top-down camera
+
+    // The cone glyph is a triangle pointing to screen-up (plan -y = world -z).
+    const pos = b!.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const zs = Array.from({ length: pos.count }, (_, i) => pos.getZ(i));
+    expect(Math.min(...zs)).toBeCloseTo(-1.2);
+    expect(Math.max(...zs)).toBeCloseTo(0.75);
+
+    view.sync(layer([sensor('a', 1, { shape: 'nonsense' as never })]), LEVELS, '#f97316');
+    expect(view.pointShape('a')).toBe('sphere'); // unknown shapes fall back to the default
+    expect(a!.geometry).toBeInstanceOf(THREE.CircleGeometry);
+    view.setMode('3d');
+    expect(a!.geometry).toBeInstanceOf(THREE.SphereGeometry);
+  });
 });
 
 describe('heatmap grid cache', () => {

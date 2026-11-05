@@ -1,3 +1,4 @@
+import type { PointShape } from '../core/shapes';
 import type { Level, Point, Room } from '../model/types';
 
 /**
@@ -20,15 +21,18 @@ export interface PointDatum {
   levelId: string;
   position: Point;
   color?: string;
-  /** Sphere radius in meters. */
+  /** Point "radius" in meters (the sphere radius; other shapes are about as big). */
   size?: number;
+  /** Overrides the layer's `shape`. */
+  shape?: PointShape;
   /** Outline ring color around the point, e.g. for alert state independent of the fill color. Null/undefined: no ring. */
   ring?: string | null;
   data?: Record<string, unknown>;
 }
 
 /**
- * Renders data points (sensors, people, assets…) as spheres on top of the plan.
+ * Renders data points (sensors, people, assets…) on top of the plan, as solids in 3D and flat
+ * glyphs in 2D (sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond).
  * Replacing a points layer with `setLayer`/`updateLayer` updates the existing objects in place
  * (matched by point id), so frequent value updates are cheap.
  */
@@ -40,6 +44,8 @@ export interface PointLayer {
   color?: string;
   /** Default radius in meters. Default 0.25. */
   size?: number;
+  /** Default shape for points without their own. Default 'sphere'. */
+  shape?: PointShape;
   /** Height above the level floor in meters. Default 1. */
   elevation?: number;
   tooltip?: (point: PointDatum) => string | null | undefined;
