@@ -1,4 +1,5 @@
 import { Emitter } from '../core/emitter';
+import { centerDuration, easeOutCubic, type CenterOnOptions, type CenterOnTarget } from '../core/motion';
 import { History } from '../core/history';
 import {
   constrainAngle,
@@ -143,6 +144,8 @@ export class FloorplanEditor {
   private readOnly: boolean;
   private overlayPoints: OverlayPoint[] = [];
   private overlaySelection: string | null = null;
+  /** rAF id of a running `centerOn` animation. */
+  private viewAnimation: number | null = null;
 
   constructor(container: HTMLElement, options: EditorOptions = {}) {
     this.plan = clonePlan(options.plan ?? createPlan());
@@ -424,8 +427,41 @@ export class FloorplanEditor {
     if (thickness > 0) this.wallThickness = thickness;
   }
 
+  /**
+   * Pan so `target.position` is in the middle of the editor, keeping the zoom. Switches to
+   * `target.levelId` first if needed. Eases there (default 300 ms, ease-out) unless
+   * `animate: false` or the user prefers reduced motion. User panning or zooming cancels the
+   * animation. Returns false for an unknown level.
+   */
+  centerOn(target: CenterOnTarget, options: CenterOnOptions = {}): boolean {
+    if (!getLevel(this.plan, target.levelId)) return false;
+    this.setActiveLevel(target.levelId);
+    this.cancelViewAnimation();
+    const { width, height } = this.size();
+    const to = { ox: width / 2 - target.position.x * this.view.scale, oy: height / 2 - target.position.y * this.view.scale };
+    const duration = centerDuration(options);
+    if (duration === 0) {
+      this.view = { ...this.view, ...to };
+      this.render();
+      return true;
+    }
+    const from = { ox: this.view.ox, oy: this.view.oy };
+    let start: number | null = null;
+    const step = (time: number) => {
+      start ??= time;
+      const t = Math.min((time - start) / duration, 1);
+      const e = easeOutCubic(t);
+      this.view = { ...this.view, ox: from.ox + (to.ox - from.ox) * e, oy: from.oy + (to.oy - from.oy) * e };
+      this.render();
+      this.viewAnimation = t < 1 ? requestAnimationFrame(step) : null;
+    };
+    this.viewAnimation = requestAnimationFrame(step);
+    return true;
+  }
+
   /** Zoom/pan so the active level fits the editor. */
   fitView(): void {
+    this.cancelViewAnimation();
     const { width, height } = this.size();
     const u = this.underlay;
     const b = levelBounds(this.getActiveLevel()) ??
@@ -458,6 +494,7 @@ export class FloorplanEditor {
   }
 
   dispose(): void {
+    this.cancelViewAnimation();
     this.resizeObserver.disconnect();
     this.events.clear();
     this.element.remove();
@@ -527,6 +564,11 @@ export class FloorplanEditor {
   }
 
   // ---------------------------------------------------------------- geometry helpers
+
+  private cancelViewAnimation(): void {
+    if (this.viewAnimation !== null) cancelAnimationFrame(this.viewAnimation);
+    this.viewAnimation = null;
+  }
 
   private size(): { width: number; height: number } {
     const rect = this.element.getBoundingClientRect();
@@ -661,6 +703,7 @@ export class FloorplanEditor {
   };
 
   private startPan(event: PointerEvent): void {
+    this.cancelViewAnimation();
     this.drag = { type: 'pan', startX: event.clientX, startY: event.clientY, ox: this.view.ox, oy: this.view.oy };
     this.element.classList.add('is-panning');
   }
@@ -757,6 +800,7 @@ export class FloorplanEditor {
 
   private onWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    this.cancelViewAnimation();
     const rect = this.svgEl.getBoundingClientRect();
     const sx = event.clientX - rect.left;
     const sy = event.clientY - rect.top;

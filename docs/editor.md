@@ -62,6 +62,7 @@ Snapping prefers existing points within 10 px over the grid. The snap cursor tur
 | `setOverlayPoints(points)` / `getOverlayPoints()` | Host-managed overlay points (below). |
 | `getOverlaySelection()` / `selectOverlayPoint(id \| null)` | The selected overlay point. Selecting one clears the entity selection and vice versa. |
 | `clientToPlan(clientX, clientY, { snap? })` | Client coordinates (e.g. from a `drop` event) → `{ levelId, position }` on the active level in meters, or `null` outside the editor. `snap: true` snaps like a new marker. |
+| `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the position is in the middle, keeping the zoom; switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps. User pan/zoom cancels it. Returns false for an unknown level. |
 | `fitView()` / `dispose()` | |
 
 Every public mutation is one undoable step. A whole drag also counts as one step.

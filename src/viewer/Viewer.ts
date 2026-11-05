@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Emitter } from '../core/emitter';
-import { reducedMotionQuery } from '../core/motion';
+import { centerDuration, easeOutCubic, reducedMotionQuery, type CenterOnOptions, type CenterOnTarget } from '../core/motion';
 import { clonePlan } from '../model/plan';
 import type { FloorPlan, Level, Point, Underlay } from '../model/types';
 import { toThreeColor } from './color';
@@ -100,6 +100,8 @@ export class FloorplanViewer {
   private hoveredMesh: THREE.Mesh | null = null;
   private downAt: { x: number; y: number } | null = null;
   private frame = 0;
+  /** A running `centerOn` animation of the orbit target. */
+  private pan: { from: THREE.Vector3; to: THREE.Vector3; duration: number; start: number | null } | null = null;
   private dirty = true;
   private disposed = false;
 
@@ -337,11 +339,8 @@ export class FloorplanViewer {
     if (!this.visibleLevelIds().has(resolved.levelId)) this.setLevel(resolved.levelId);
 
     const elevation = this.levelById(resolved.levelId)?.elevation ?? 0;
-    const center = new THREE.Vector3(resolved.center.x, elevation + resolved.height, resolved.center.y);
-    const delta = center.clone().sub(this.controls.target);
-    this.camera.position.add(delta);
-    this.controls.target.copy(center);
-    this.controls.update();
+    this.pan = null;
+    this.moveTarget(new THREE.Vector3(resolved.center.x, elevation + resolved.height, resolved.center.y));
 
     this.clearHighlight();
     const highlight = options.highlight ?? true;
@@ -351,6 +350,25 @@ export class FloorplanViewer {
       if (spec.duration) this.focusState.timer = setTimeout(() => this.clearHighlight(), spec.duration);
       this.updateHighlight();
     }
+    this.requestRender();
+    return true;
+  }
+
+  /**
+   * Pan so a plan position is in the middle of the view, keeping the zoom and, in 3D, the camera's
+   * distance and angle (the orbit target moves to the position on the level's floor). Switches to
+   * `target.levelId` if it isn't shown. Eases there (default 300 ms, ease-out) unless
+   * `animate: false` or the user prefers reduced motion; user camera input cancels it.
+   * Returns false for an unknown level.
+   */
+  centerOn(target: CenterOnTarget, options: CenterOnOptions = {}): boolean {
+    const level = this.levelById(target.levelId);
+    if (!level) return false;
+    if (!this.visibleLevelIds().has(level.id)) this.setLevel(level.id);
+    const to = new THREE.Vector3(target.position.x, level.elevation, target.position.y);
+    const duration = centerDuration(options);
+    this.pan = duration > 0 ? { from: this.controls.target.clone(), to, duration, start: null } : null;
+    if (!this.pan) this.moveTarget(to);
     this.requestRender();
     return true;
   }
@@ -369,6 +387,7 @@ export class FloorplanViewer {
 
   /** Frame the visible part of the plan. */
   fitView(): void {
+    this.pan = null;
     const box = new THREE.Box3();
     for (const b of this.built) if (b.group.visible) box.expandByObject(b.group);
     if (box.isEmpty()) box.set(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 3, 5));
@@ -432,6 +451,8 @@ export class FloorplanViewer {
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
     controls.screenSpacePanning = true;
     controls.addEventListener('change', () => this.requestRender());
+    // The user grabbed the camera: stop a running centerOn.
+    controls.addEventListener('start', () => (this.pan = null));
     return controls;
   }
 
@@ -461,9 +482,26 @@ export class FloorplanViewer {
 
   private loop = (time: number): void => {
     this.frame = requestAnimationFrame(this.loop);
+    if (this.pan) this.stepPan(time);
     if (this.animateBeams(time)) this.dirty = true;
     if (this.dirty) this.render();
   };
+
+  private stepPan(time: number): void {
+    const pan = this.pan!;
+    pan.start ??= time;
+    const t = Math.min((time - pan.start) / pan.duration, 1);
+    this.moveTarget(pan.from.clone().lerp(pan.to, easeOutCubic(t)));
+    if (t >= 1) this.pan = null;
+  }
+
+  /** Move the orbit target to `center`, shifting the camera by the same amount (same zoom, distance and angle). */
+  private moveTarget(center: THREE.Vector3): void {
+    this.camera.position.add(center.clone().sub(this.controls.target));
+    this.controls.target.copy(center);
+    this.controls.update();
+    this.requestRender();
+  }
 
   /**
    * Advance the beam pulses. True while a beam is visible and motion is allowed: only then does
