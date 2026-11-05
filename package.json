@@ -11,11 +11,23 @@
   "main": "./dist/vespenelabs-floorview.umd.cjs",
   "module": "./dist/vespenelabs-floorview.js",
   "types": "./dist/types/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "model": [
+        "./dist/types/model/index.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/types/index.d.ts",
       "import": "./dist/vespenelabs-floorview.js",
       "require": "./dist/vespenelabs-floorview.umd.cjs"
+    },
+    "./model": {
+      "types": "./dist/types/model/index.d.ts",
+      "import": "./dist/model.js",
+      "require": "./dist/model.cjs"
     },
     "./style.css": "./dist/vespenelabs-floorview.css"
   },
@@ -25,7 +37,7 @@
   "scripts": {
     "dev": "vite studio",
     "dev:mock": "ARCHITECT_MOCK=1 vite studio",
-    "build": "vite build && tsc -p tsconfig.build.json",
+    "build": "vite build && vite build --mode subpaths && tsc -p tsconfig.build.json",
     "build:studio": "vite build studio",
     "preview:studio": "vite preview studio",
     "typecheck": "tsc --noEmit && tsc --noEmit -p studio",

@@ -70,6 +70,20 @@ try {
 
 The validator checks types, positive sizes, at least 3 points per room, unique ids and the `version`. Unknown properties are dropped. Coordinates may be any finite number.
 
+### On a server (`@vespenelabs/floorview/model`)
+
+The `@vespenelabs/floorview/model` subpath exports the plan format without Three.js or the DOM, so it can run in Node, for example to validate plans in an API before storing them:
+
+```ts
+import { parsePlan, PlanValidationError, createId, type FloorPlan } from '@vespenelabs/floorview/model';
+
+const plan: FloorPlan = parsePlan(request.body); // throws PlanValidationError with a JSON path
+```
+
+It contains the plan types, `PLAN_FORMAT_VERSION`, `parsePlan`/`parsePlanJSON`/`PlanValidationError`, the plan helpers below (`createId`, `createPlan`, `clonePlan`…) and the geometry helpers. It ships as ES (`dist/model.js`) and CJS (`dist/model.cjs`). The main entry re-exports all of it.
+
+The subpath is a separate bundle, so a `PlanValidationError` thrown by it is not `instanceof` the class from the main entry, and vice versa. Import both from the same entry, or check `err.name === 'PlanValidationError'`.
+
 ## Helpers
 
 `src/model/plan.ts` and `src/model/geometry.ts` are pure and exported from the package:

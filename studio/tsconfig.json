@@ -6,7 +6,8 @@
     "allowImportingTsExtensions": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@vespenelabs/floorview": ["../src/index.ts"]
+      "@vespenelabs/floorview": ["../src/index.ts"],
+      "@vespenelabs/floorview/*": ["../src/*/index.ts"]
     }
   },
   "include": ["src", "server", "vite.config.ts"]
