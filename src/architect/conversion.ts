@@ -10,12 +10,13 @@ import {
   type Level,
   type Point,
   type Underlay,
-} from '@vespenelabs/floorview';
+} from '../model/index';
 
 /**
  * Converts the assistant's `propose_floor_plan` input (image pixels) into a validated FloorPlan
  * (meters). Tool inputs are untrusted model output (and streamed without server-side validation),
  * so everything is checked here; problems go back to the assistant as an error tool result.
+ * Pure: no DOM, so a host can also run it on the server.
  */
 
 export interface ImageSize {
@@ -23,7 +24,7 @@ export interface ImageSize {
   height: number;
 }
 
-export type Conversion =
+export type ProposalConversion =
   | { ok: true; plan: FloorPlan; underlay: Underlay; summary: string; warnings: string[]; assumptions: string[] }
   | { ok: false; errors: string[] };
 
@@ -54,7 +55,7 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 const str = (v: unknown, fallback = '') => (typeof v === 'string' ? v.trim() : fallback);
 const round = (v: number) => Math.round(v * 1000) / 1000;
 
-export function convertProposal(input: unknown, image: ImageSize): Conversion {
+export function convertProposal(input: unknown, image: ImageSize): ProposalConversion {
   const errors: string[] = [];
   const warnings: string[] = [];
   if (!isObj(input)) return { ok: false, errors: ['The input must be an object.'] };

@@ -15,6 +15,10 @@ src/
   editor/
     Editor.ts           FloorplanEditor: tools, hit testing, snapping, drag, history, SVG rendering
     svg.ts              tiny SVG element helper
+  architect/            `/architect` subpath: AI architect controller (tool loop), transport, scan prep,
+                        proposal conversion, protocol types (browser, no React)
+    server/             `/architect/server` subpath: agent definition, runArchitectTurn, middleware,
+                        Anthropic and mock models (Node, no DOM)
   samples.ts            createSamplePlan()
   styles.css            library CSS, themable through --vl-* custom properties
 studio/                 Floorview Studio: React + shadcn/ui demo app (not part of the library build)
@@ -52,6 +56,7 @@ Editor ────────────────────────�
 | Hand-written validator | No runtime dependency, and errors come with precise JSON paths. |
 | Snapshot undo | Plans are small and simple, so it's robust. It can switch to command-based undo if plans grow large. |
 | Subpath entries built separately | The main entry ships ES + UMD, and Vite's UMD output supports one entry only. `vite build --mode subpaths` builds the subpath entries (`/model`…) as ES + CJS into the same `dist/`. Each subpath `<name>` lives at `src/<name>/index.ts`, and `vite.aliases.ts` maps the package name to source for tests and Studio. |
+| Provider-agnostic architect | The agent definition (prompt, JSON Schema tools) and the tool loop are provider-neutral; `ArchitectModel` adapters talk to a provider. The wire messages keep the Anthropic Messages shape so thinking blocks replay unchanged, and `@anthropic-ai/sdk` is an optional peer loaded only by the Anthropic adapter. |
 | Doors as wall gaps | Keeps the format minimal for v1 (see roadmap). |
 
 ## Roadmap ideas

@@ -69,9 +69,11 @@ The `Publish package` workflow (`.github/workflows/publish.yml`) checks that the
 - [Viewer](docs/viewer.md): `FloorplanViewer` API, events, data layers
 - [Editor](docs/editor.md): `FloorplanEditor` API, tools, shortcuts, events
 - [Architecture](docs/architecture.md): how the pieces fit together, design decisions, roadmap
+- [AI architect](docs/architect.md): `@vespenelabs/floorview/architect` (browser tool loop) and `/architect/server` (Node, provider-agnostic models)
 - [Floorview Studio](docs/studio.md): the React demo app, its stack and how it uses the library
 
 ## Requirements
 
 - A browser with WebGL for the viewer. The editor is plain SVG.
 - `three` (>= 0.160) is a **peer dependency** and is not bundled. The OrbitControls and CSS2DRenderer add-ons are bundled.
+- `@anthropic-ai/sdk` (>= 1.4) is an **optional peer dependency**, needed only for `createAnthropicArchitectModel`.
