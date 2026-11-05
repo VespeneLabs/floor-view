@@ -49,7 +49,7 @@ The package is published to GitHub Packages (`https://npm.pkg.github.com`) as a 
 1. Bump `version` in `package.json` (e.g. `npm version 0.2.0 --no-git-tag-version`) and merge that to `main`.
 2. Tag the release commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
 
-The `Publish package` workflow (`.github/workflows/publish.yml`) checks that the tag matches `package.json`, then runs `npm publish`. `prepublishOnly` runs the typecheck, the tests and the library build first, so `dist/` is always rebuilt from the tagged source.
+The `Publish package` workflow (`.github/workflows/publish.yml`) checks that the tag matches `package.json`, then runs `npm publish`. To retry a failed publish without re-tagging, run the workflow manually (**Actions → Publish package → Run workflow**) and pick the version tag under *Use workflow from*. A run started from a branch stops at the version check. `prepublishOnly` runs the typecheck, the tests and the library build first, so `dist/` is always rebuilt from the tagged source.
 
 ## Scripts
 
