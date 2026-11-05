@@ -103,6 +103,23 @@ describe('PointLayerView', () => {
     expect(a!.geometry).toBeInstanceOf(THREE.SphereGeometry);
   });
 
+  it('hides a layer (points, labels, beams) without rebuilding', () => {
+    const view = new PointLayerView('sensors');
+    view.sync(layer([sensor('a', 1, { beam: 'red' })]), LEVELS, '#f97316');
+    const [mesh] = meshes(view);
+    view.sync(layer([sensor('a', 2, { beam: 'red' })], { visible: false }), LEVELS, '#f97316');
+    expect(meshes(view)[0]).toBe(mesh);
+    expect([...view.groups.values()].every((g) => !g.visible)).toBe(true);
+    expect(labels(view)).toEqual(['2 ppm']); // still updated while hidden
+    expect(view.hasBeams(LEVELS)).toBe(false); // no animation frames for hidden beams
+    // Groups created while hidden start hidden.
+    view.sync(layer([sensor('a', 2), sensor('c', 3, { levelId: 'level_first' })], { visible: false }), LEVELS, '#f97316');
+    expect(view.groups.get('level_first')!.visible).toBe(false);
+    view.sync(layer([sensor('a', 2, { beam: 'red' })]), LEVELS, '#f97316');
+    expect([...view.groups.values()].every((g) => g.visible)).toBe(true);
+    expect(view.hasBeams(LEVELS)).toBe(true);
+  });
+
   it('adds, animates and removes alert beams', () => {
     const beams = (v: PointLayerView) => [...v.groups.values()].flatMap((g) => g.children.filter((c) => c.name === 'point-beam')) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
     const view = new PointLayerView('sensors');

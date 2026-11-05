@@ -265,6 +265,10 @@ export class FloorplanViewer {
     this.requestRender();
   }
 
+  /**
+   * Show or hide the plan's labels, which are the room names (the only text the plan itself
+   * puts on screen). Point layer labels are separate: `updateLayer(id, { showLabels })`.
+   */
   setShowLabels(show: boolean): void {
     this.showLabels = show;
     for (const b of this.built) b.group.children.forEach((c) => c.name === 'label' && (c.visible = show));
@@ -287,6 +291,12 @@ export class FloorplanViewer {
     if (index >= 0) this.layers[index] = layer;
     else this.layers.push(layer);
     this.applyLayer(layer);
+    if (layer.type === 'points' && layer.visible === false && this.hovered?.layerId === layer.id) {
+      // The hovered point was just hidden: drop the hover state and its tooltip.
+      this.hovered = null;
+      this.setHover(null);
+      this.tooltip.hidden = true;
+    }
     if (layer.type === 'rooms' || previous?.type === 'rooms') this.applyRoomColors();
     if (this.focusState?.target.kind === 'point' && this.focusState.target.layerId === layer.id) this.updateHighlight();
     this.refreshTooltip();
