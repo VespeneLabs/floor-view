@@ -29,6 +29,33 @@ import { pointsAttr, svg } from './svg';
 
 export type EditorTool = 'select' | 'wall' | 'room' | 'marker' | 'pan';
 
+export const ALL_EDITOR_TOOLS: readonly EditorTool[] = ['select', 'wall', 'room', 'marker', 'pan'];
+/** Tools available in read-only mode. */
+const READ_ONLY_TOOLS: readonly EditorTool[] = ['select', 'pan'];
+
+/**
+ * A host-managed point drawn on top of the plan (e.g. a sensor position). Not part of the plan:
+ * not saved, not in `change` events and not in the undo history. Set with `setOverlayPoints`.
+ */
+export interface OverlayPoint {
+  id: string;
+  levelId: string;
+  position: Point;
+  /** Fill color (any CSS color). Default: `--vl-overlay`. */
+  color?: string;
+  /** Text shown next to the point. */
+  label?: string;
+  /** Can be dragged with the select tool. Default true. */
+  draggable?: boolean;
+}
+
+/** `overlaypointmove`: a drag ended with the point at `position` (plan meters, snapped like markers). */
+export interface OverlayPointMove {
+  id: string;
+  levelId: string;
+  position: Point;
+}
+
 export interface EditorOptions {
   plan?: FloorPlan;
   /** Initially active level id (default: first level). */
@@ -40,6 +67,15 @@ export interface EditorOptions {
   snap?: boolean;
   /** Thickness for new walls, in meters. Default 0.15. */
   wallThickness?: number;
+  /**
+   * Tools the user may use (others are ignored by `setTool` and keyboard shortcuts).
+   * Default: all. The editor has no toolbar of its own, so this limits what a host offers.
+   */
+  tools?: EditorTool[];
+  /** Read-only: the user can select, pan and zoom but not change the plan. Default false. */
+  readOnly?: boolean;
+  /** Host-managed points drawn on top (see `setOverlayPoints`). */
+  overlayPoints?: OverlayPoint[];
 }
 
 export interface EditorEvents {
@@ -49,6 +85,10 @@ export interface EditorEvents {
   toolchange: EditorTool;
   levelchange: string;
   historychange: { canUndo: boolean; canRedo: boolean };
+  /** An overlay point was dropped after dragging. Update your own data, then `setOverlayPoints`. */
+  overlaypointmove: OverlayPointMove;
+  /** The selected overlay point changed (null: none). Independent of `selectionchange`. */
+  overlaypointselect: string | null;
 }
 
 type EntityPatch = Partial<Omit<Wall, 'id'>> | Partial<Omit<Room, 'id'>> | Partial<Omit<Marker, 'id'>>;
@@ -56,7 +96,8 @@ type EntityPatch = Partial<Omit<Wall, 'id'>> | Partial<Omit<Room, 'id'>> | Parti
 type Drag =
   | { type: 'pan'; startX: number; startY: number; ox: number; oy: number }
   | { type: 'move'; ref: EntityRef; start: Point; before: FloorPlan; original: Point[]; moved: boolean }
-  | { type: 'handle'; ref: EntityRef; index: number; before: FloorPlan; moved: boolean };
+  | { type: 'handle'; ref: EntityRef; index: number; before: FloorPlan; moved: boolean }
+  | { type: 'overlay'; id: string; start: Point; original: Point; moved: boolean };
 
 type Draft = { kind: 'wall' | 'room'; points: Point[] };
 
@@ -64,6 +105,8 @@ type Draft = { kind: 'wall' | 'room'; points: Point[] };
 const HIT_PX = 6;
 /** Snap-to-point tolerance in screen pixels. */
 const SNAP_PX = 10;
+/** Overlay point radius and hit tolerance in screen pixels. */
+const OVERLAY_PX = 7;
 const MIN_SCALE = 4;
 const MAX_SCALE = 400;
 
@@ -96,11 +139,18 @@ export class FloorplanEditor {
   private drag: Drag | null = null;
   private draft: Draft | null = null;
   private cursor: { point: Point; snapped: boolean } | null = null;
+  private tools: EditorTool[];
+  private readOnly: boolean;
+  private overlayPoints: OverlayPoint[] = [];
+  private overlaySelection: string | null = null;
 
   constructor(container: HTMLElement, options: EditorOptions = {}) {
     this.plan = clonePlan(options.plan ?? createPlan());
     this.levelId = options.levelId ?? this.plan.levels[0]!.id;
-    this.tool = options.tool ?? 'select';
+    this.tools = sanitizeTools(options.tools);
+    this.readOnly = options.readOnly ?? false;
+    this.overlayPoints = structuredClone(options.overlayPoints ?? []);
+    this.tool = this.allowedTool(options.tool ?? 'select');
     this.grid = options.grid ?? 0.25;
     this.snapEnabled = options.snap ?? true;
     this.wallThickness = options.wallThickness ?? 0.15;
@@ -109,6 +159,7 @@ export class FloorplanEditor {
     this.element.className = 'vl-editor';
     this.element.tabIndex = 0;
     this.element.dataset.tool = this.tool;
+    this.element.toggleAttribute('data-readonly', this.readOnly);
     container.appendChild(this.element);
 
     this.svgEl = svg('svg', { class: 'vl-editor__svg', width: '100%', height: '100%' }, this.element);
@@ -163,13 +214,90 @@ export class FloorplanEditor {
     return this.tool;
   }
 
+  /** Switch tools. Ignored for tools that `tools` or read-only mode don't allow. */
   setTool(tool: EditorTool): void {
-    if (tool === this.tool) return;
+    if (tool === this.tool || !this.availableTools().includes(tool)) return;
     this.finishDraft();
     this.tool = tool;
     this.element.dataset.tool = tool;
     this.render();
     this.events.emit('toolchange', tool);
+  }
+
+  /** The tools the user can currently use (the `tools` option, narrowed by read-only mode). */
+  availableTools(): EditorTool[] {
+    return this.tools.filter((t) => !this.readOnly || READ_ONLY_TOOLS.includes(t));
+  }
+
+  /** Restrict the tools (default: all). Switches to the first allowed tool if the current one isn't. */
+  setTools(tools: EditorTool[]): void {
+    this.tools = sanitizeTools(tools);
+    this.ensureAllowedTool();
+  }
+
+  isReadOnly(): boolean {
+    return this.readOnly;
+  }
+
+  /**
+   * Read-only mode: the user can select, pan and zoom, and drag draggable overlay points, but not
+   * draw, move, reshape or delete plan entities, or undo/redo with the keyboard. API calls
+   * (`setPlan`, `updateEntity`…) still apply. Drawing tools fall back to select.
+   */
+  setReadOnly(readOnly: boolean): void {
+    if (readOnly === this.readOnly) return;
+    this.readOnly = readOnly;
+    this.element.toggleAttribute('data-readonly', readOnly);
+    if (readOnly) {
+      this.draft = null;
+      if (this.drag?.type === 'move' || this.drag?.type === 'handle') this.cancelDrag();
+    }
+    this.ensureAllowedTool();
+    this.render();
+  }
+
+  /** Replace the host-managed overlay points (no undo history, no `change` event). */
+  setOverlayPoints(points: OverlayPoint[]): void {
+    // A drag in progress keeps its live position until it's dropped.
+    const dragging = this.drag?.type === 'overlay' ? this.overlayPoints.find((p) => p.id === (this.drag as { id: string }).id) : undefined;
+    this.overlayPoints = structuredClone(points);
+    if (dragging) {
+      const next = this.overlayPoints.find((p) => p.id === dragging.id);
+      if (next) next.position = dragging.position;
+      else this.drag = null;
+    }
+    if (this.overlaySelection && !this.overlayPoints.some((p) => p.id === this.overlaySelection)) this.selectOverlayPoint(null);
+    this.render();
+  }
+
+  getOverlayPoints(): OverlayPoint[] {
+    return structuredClone(this.overlayPoints);
+  }
+
+  getOverlaySelection(): string | null {
+    return this.overlaySelection;
+  }
+
+  /** Select an overlay point (clears the entity selection), or null to deselect. */
+  selectOverlayPoint(id: string | null): void {
+    const next = id && this.overlayPoints.some((p) => p.id === id) ? id : null;
+    if (next) this.select(null);
+    if (next === this.overlaySelection) return;
+    this.overlaySelection = next;
+    this.render();
+    this.events.emit('overlaypointselect', next);
+  }
+
+  /**
+   * Converts client (viewport) coordinates, e.g. from a `drop` event, to a position on the active
+   * level in plan meters. Returns null outside the editor. `snap: true` applies the grid and
+   * point snapping used for markers.
+   */
+  clientToPlan(clientX: number, clientY: number, { snap = false }: { snap?: boolean } = {}): { levelId: string; position: Point } | null {
+    const rect = this.svgEl.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    const raw = this.toWorld({ clientX, clientY });
+    return { levelId: this.levelId, position: snap ? this.snap(raw, { altKey: false }).point : raw };
   }
 
   getActiveLevel(): Level {
@@ -242,6 +370,10 @@ export class FloorplanEditor {
   select(ref: EntityRef | null): void {
     const same = ref?.id === this.selection?.id && ref?.kind === this.selection?.kind;
     this.selection = ref && findEntity(this.plan, ref) ? { ...ref } : null;
+    if (this.selection && this.overlaySelection) {
+      this.overlaySelection = null;
+      this.events.emit('overlaypointselect', null);
+    }
     this.render();
     if (!same) this.events.emit('selectionchange', this.getSelection());
   }
@@ -364,6 +496,28 @@ export class FloorplanEditor {
     this.render();
   }
 
+  private allowedTool(tool: EditorTool): EditorTool {
+    const tools = this.availableTools();
+    return tools.includes(tool) ? tool : (tools[0] ?? 'pan');
+  }
+
+  private ensureAllowedTool(): void {
+    const tool = this.allowedTool(this.tool);
+    if (tool === this.tool) return;
+    this.draft = null;
+    this.tool = tool;
+    this.element.dataset.tool = tool;
+    this.render();
+    this.events.emit('toolchange', tool);
+  }
+
+  /** Abandon an entity drag, restoring the plan as it was before it. */
+  private cancelDrag(): void {
+    const drag = this.drag;
+    this.drag = null;
+    if (drag?.type === 'move' || drag?.type === 'handle') this.plan = drag.before;
+  }
+
   private commitRoom(points: Point[]): void {
     if (points.length < 3 || polygonArea(points) < 1e-6) return;
     const level = this.getActiveLevel();
@@ -405,13 +559,22 @@ export class FloorplanEditor {
     return s;
   }
 
+  /** The topmost draggable-or-not overlay point on the active level within reach of `p`. */
+  private overlayHit(p: Point): OverlayPoint | null {
+    const tol = (OVERLAY_PX + 3) / this.view.scale;
+    for (const point of [...this.overlayPoints].reverse()) {
+      if (point.levelId === this.levelId && distance(p, point.position) <= tol) return point;
+    }
+    return null;
+  }
+
   private hitTest(p: Point): { ref: EntityRef; handle?: number } | null {
     const level = this.getActiveLevel();
     const tol = HIT_PX / this.view.scale;
     const ref = (kind: EntityRef['kind'], id: string): EntityRef => ({ kind, id, levelId: level.id });
 
-    // Handles of the selected entity take priority.
-    if (this.selection && this.selection.kind !== 'marker') {
+    // Handles of the selected entity take priority (none in read-only mode).
+    if (this.selection && this.selection.kind !== 'marker' && !this.readOnly) {
       const entity = findEntity(this.plan, this.selection);
       if (entity) {
         const index = entityPoints(this.selection.kind, entity).findIndex((q) => distance(p, q) <= tol * 1.5);
@@ -445,13 +608,24 @@ export class FloorplanEditor {
 
     switch (this.tool) {
       case 'select': {
+        const overlay = this.overlayHit(raw);
+        if (overlay) {
+          this.selectOverlayPoint(overlay.id);
+          if (overlay.draggable ?? true) this.drag = { type: 'overlay', id: overlay.id, start: raw, original: { ...overlay.position }, moved: false };
+          return;
+        }
         const hit = this.hitTest(raw);
         if (!hit) {
           this.select(null);
+          this.selectOverlayPoint(null);
           this.startPan(event);
           return;
         }
         const entity = findEntity(this.plan, hit.ref)!;
+        if (this.readOnly) {
+          this.select(hit.ref); // inspect only
+          return;
+        }
         if (hit.handle !== undefined) {
           this.drag = { type: 'handle', ref: hit.ref, index: hit.handle, before: clonePlan(this.plan), moved: false };
         } else {
@@ -539,6 +713,14 @@ export class FloorplanEditor {
         });
         drag.moved ||= delta.x !== 0 || delta.y !== 0;
       }
+    } else if (drag?.type === 'overlay') {
+      const point = this.overlayPoints.find((p) => p.id === drag.id);
+      if (point) {
+        const target = { x: drag.original.x + raw.x - drag.start.x, y: drag.original.y + raw.y - drag.start.y };
+        const next = this.snap(target, event).point;
+        drag.moved ||= !pointsEqual(next, drag.original);
+        point.position = next;
+      }
     } else if (drag?.type === 'handle') {
       const entity = findEntity(this.plan, drag.ref);
       const target = entity && entityPoints(drag.ref.kind, entity)[drag.index];
@@ -562,6 +744,9 @@ export class FloorplanEditor {
     if ((drag?.type === 'move' || drag?.type === 'handle') && drag.moved) {
       this.history.push(drag.before);
       this.emitChange();
+    } else if (drag?.type === 'overlay' && drag.moved) {
+      const point = this.overlayPoints.find((p) => p.id === drag.id);
+      if (point) this.events.emit('overlaypointmove', { id: point.id, levelId: point.levelId, position: { ...point.position } });
     }
   };
 
@@ -589,6 +774,7 @@ export class FloorplanEditor {
   private onKeyDown = (event: KeyboardEvent): void => {
     const mod = event.metaKey || event.ctrlKey;
     const key = event.key.toLowerCase();
+    if (mod && (key === 'z' || key === 'y') && this.readOnly) return;
     if (mod && key === 'z') {
       event.preventDefault();
       if (event.shiftKey) this.redo();
@@ -607,10 +793,13 @@ export class FloorplanEditor {
       if (this.draft) {
         this.draft = null;
         this.render();
-      } else this.select(null);
+      } else {
+        this.select(null);
+        this.selectOverlayPoint(null);
+      }
     } else if (key === 'enter') {
       this.finishDraft();
-    } else if (key === 'delete' || key === 'backspace') {
+    } else if ((key === 'delete' || key === 'backspace') && !this.readOnly) {
       event.preventDefault();
       this.deleteSelection();
     } else if (key === 'f') {
@@ -671,7 +860,7 @@ export class FloorplanEditor {
     }
 
     // Handles for the selected wall/room.
-    if (sel && sel.kind !== 'marker') {
+    if (sel && sel.kind !== 'marker' && !this.readOnly) {
       const entity = findEntity(this.plan, sel);
       if (entity) {
         for (const p of entityPoints(sel.kind, entity)) {
@@ -680,7 +869,22 @@ export class FloorplanEditor {
       }
     }
 
+    this.renderOverlay(px);
     this.renderDraft(px);
+  }
+
+  /** Host-managed overlay points on the active level, at a fixed screen size, above the plan. */
+  private renderOverlay(px: number): void {
+    for (const point of this.overlayPoints) {
+      if (point.levelId !== this.levelId) continue;
+      const { x, y } = point.position;
+      const selected = point.id === this.overlaySelection;
+      const g = svg('g', { class: cls('vl-editor__overlay-point', selected), 'data-overlay-id': point.id }, this.world);
+      svg('circle', { cx: x, cy: y, r: OVERLAY_PX * px, fill: point.color }, g);
+      if (point.label) {
+        svg('text', { x: x + (OVERLAY_PX + 4) * px, y, 'font-size': 11 * px, 'dominant-baseline': 'central', class: 'vl-editor__overlay-label' }, g).textContent = point.label;
+      }
+    }
   }
 
   private renderDraft(px: number): void {
@@ -754,4 +958,9 @@ function clamp(v: number, min: number, max: number): number {
 
 function lineAttrs(a: Point, b: Point) {
   return { x1: a.x, y1: a.y, x2: b.x, y2: b.y };
+}
+
+function sanitizeTools(tools: readonly EditorTool[] | undefined): EditorTool[] {
+  const allowed = (tools ?? ALL_EDITOR_TOOLS).filter((t) => ALL_EDITOR_TOOLS.includes(t));
+  return allowed.length ? [...new Set(allowed)] : ['pan'];
 }

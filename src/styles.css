@@ -19,6 +19,8 @@
   --vl-muted: #64748b;
   --vl-tooltip-bg: #0f172a;
   --vl-tooltip-fg: #f8fafc;
+  --vl-overlay: #f97316;
+  --vl-overlay-stroke: #ffffff;
   --vl-point-label: var(--vl-tooltip-fg);
   --vl-point-label-bg: rgb(15 23 42 / 0.82);
 
@@ -118,6 +120,21 @@
 .vl-editor__marker { stroke: var(--vl-marker-stroke); stroke-width: 2; }
 .vl-editor__marker:not([fill]) { fill: var(--vl-marker); }
 .vl-editor__marker.is-selected { stroke: var(--vl-selection); stroke-width: 3; }
+
+/* Host-managed overlay points (setOverlayPoints): fixed screen size, above the plan. */
+.vl-editor__overlay-point { cursor: grab; }
+.vl-editor__overlay-point circle { stroke: var(--vl-overlay-stroke); stroke-width: 2; }
+.vl-editor__overlay-point circle:not([fill]) { fill: var(--vl-overlay); }
+.vl-editor__overlay-point.is-selected circle { stroke: var(--vl-selection); stroke-width: 3; }
+.vl-editor.is-panning .vl-editor__overlay-point { cursor: grabbing; }
+.vl-editor__overlay-label {
+  fill: var(--vl-label);
+  paint-order: stroke;
+  stroke: var(--vl-editor-bg);
+  stroke-width: 3px;
+  font-weight: 600;
+  pointer-events: none;
+}
 
 .vl-editor__draft-area { fill: var(--vl-draft); fill-opacity: 0.15; }
 .vl-editor__draft-line { fill: none; stroke: var(--vl-draft); stroke-width: 1.5; stroke-dasharray: 6 4; }

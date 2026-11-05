@@ -120,3 +120,144 @@ describe('FloorplanEditor', () => {
     expect(editor.getActiveLevel().name).not.toBe('mutated');
   });
 });
+
+describe('FloorplanEditor overlay points', () => {
+  const sensors = (levelId: string) => [
+    { id: 's1', levelId, position: { x: 2, y: 2 }, label: 'CO₂ 420' },
+    { id: 's2', levelId, position: { x: 6, y: 2 }, color: '#ef4444', draggable: false },
+    { id: 's3', levelId: 'other', position: { x: 2, y: 2 } },
+  ];
+
+  it('draws the active level’s points on top, outside the plan and history', () => {
+    const { editor } = setup();
+    const levelId = editor.getActiveLevel().id;
+    const changes: unknown[] = [];
+    editor.on('change', (p) => changes.push(p));
+    editor.setOverlayPoints(sensors(levelId));
+    const drawn = [...editor.element.querySelectorAll('.vl-editor__overlay-point')].map((g) => g.getAttribute('data-overlay-id'));
+    expect(drawn).toEqual(['s1', 's2']);
+    expect(editor.element.querySelector('.vl-editor__overlay-label')?.textContent).toBe('CO₂ 420');
+    expect(JSON.stringify(editor.getPlan())).not.toContain('s1');
+    expect(changes).toEqual([]);
+    expect(editor.canUndo()).toBe(false);
+  });
+
+  it('selects and drags a point (snapped), emitting one move on drop without touching the plan', () => {
+    const { editor, at } = setup();
+    const levelId = editor.getActiveLevel().id;
+    editor.setOverlayPoints(sensors(levelId));
+    const moves: unknown[] = [];
+    const selected: (string | null)[] = [];
+    editor.on('overlaypointmove', (m) => moves.push(m));
+    editor.on('overlaypointselect', (id) => selected.push(id));
+    editor.on('change', () => moves.push('plan change!'));
+
+    at(2.05, 2, 'pointerdown');
+    at(3.6, 4.1, 'pointermove');
+    at(4.6, 5.1, 'pointermove');
+    at(4.6, 5.1, 'pointerup');
+    expect(selected).toEqual(['s1']);
+    expect(moves).toEqual([{ id: 's1', levelId, position: { x: 4.5, y: 5 } }]);
+    expect(editor.getOverlayPoints()[0]!.position).toEqual({ x: 4.5, y: 5 });
+    expect(editor.canUndo()).toBe(false);
+
+    // Not draggable: selected but stays put.
+    at(6, 2, 'pointerdown');
+    at(8, 4, 'pointermove');
+    at(8, 4, 'pointerup');
+    expect(selected).toEqual(['s1', 's2']);
+    expect(moves).toHaveLength(1);
+    expect(editor.getOverlayPoints()[1]!.position).toEqual({ x: 6, y: 2 });
+  });
+
+  it('keeps overlay and entity selection mutually exclusive', () => {
+    const { editor, click } = setup();
+    const levelId = editor.getActiveLevel().id;
+    editor.setTool('marker');
+    click(8, 8);
+    editor.setTool('select');
+    editor.setOverlayPoints(sensors(levelId));
+    click(2, 2);
+    expect(editor.getOverlaySelection()).toBe('s1');
+    click(8, 8);
+    expect(editor.getSelection()?.kind).toBe('marker');
+    expect(editor.getOverlaySelection()).toBeNull();
+    editor.selectOverlayPoint('s2');
+    expect(editor.getSelection()).toBeNull();
+    editor.setOverlayPoints([]); // removing the selected point deselects it
+    expect(editor.getOverlaySelection()).toBeNull();
+  });
+});
+
+describe('FloorplanEditor host integration', () => {
+  it('converts client coordinates to plan positions on the active level', () => {
+    const { editor } = setup();
+    const levelId = editor.getActiveLevel().id;
+    expect(editor.clientToPlan(110, 160)).toEqual({ levelId, position: { x: 2.2, y: 3.2 } });
+    expect(editor.clientToPlan(110, 160, { snap: true })).toEqual({ levelId, position: { x: 2, y: 3 } });
+    expect(editor.clientToPlan(900, 100)).toBeNull();
+  });
+
+  it('limits the tools', () => {
+    const { editor } = setup();
+    const changes: string[] = [];
+    editor.on('toolchange', (t) => changes.push(t));
+    editor.setTools(['select', 'marker']);
+    editor.setTool('wall');
+    expect(editor.getTool()).toBe('select');
+    editor.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'w' }));
+    editor.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'm' }));
+    expect(changes).toEqual(['marker']);
+    editor.setTools(['pan']);
+    expect(editor.getTool()).toBe('pan');
+    expect(editor.availableTools()).toEqual(['pan']);
+  });
+
+  it('read-only: selection works, edits by the user do not', () => {
+    const { editor, at, click } = setup();
+    editor.setTool('marker');
+    click(2, 2);
+    editor.setTool('wall');
+    editor.setReadOnly(true);
+    expect(editor.getTool()).toBe('select');
+    expect(editor.availableTools()).toEqual(['select', 'pan']);
+    expect(editor.element.hasAttribute('data-readonly')).toBe(true);
+    editor.setTool('room');
+    expect(editor.getTool()).toBe('select');
+
+    const before = JSON.stringify(editor.getPlan());
+    at(2, 2, 'pointerdown');
+    at(5, 5, 'pointermove');
+    at(5, 5, 'pointerup');
+    expect(editor.getSelection()?.kind).toBe('marker'); // selectable
+    editor.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }));
+    editor.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+    expect(JSON.stringify(editor.getPlan())).toBe(before);
+
+    editor.setReadOnly(false);
+    editor.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete' }));
+    expect(editor.getActiveLevel().markers).toHaveLength(0);
+  });
+
+  it('read-only still lets the host drag overlay points', () => {
+    const { editor, at } = setup();
+    editor.setReadOnly(true);
+    const levelId = editor.getActiveLevel().id;
+    editor.setOverlayPoints([{ id: 's', levelId, position: { x: 1, y: 1 } }]);
+    const moves: unknown[] = [];
+    editor.on('overlaypointmove', (m) => moves.push(m));
+    at(1, 1, 'pointerdown');
+    at(3, 1, 'pointermove');
+    at(3, 1, 'pointerup');
+    expect(moves).toEqual([{ id: 's', levelId, position: { x: 3, y: 1 } }]);
+  });
+
+  it('honours tools and readOnly options at construction', () => {
+    editor = new FloorplanEditor(document.body, { tool: 'wall', tools: ['select', 'pan'], readOnly: false });
+    expect(editor.getTool()).toBe('select');
+    editor.dispose();
+    editor = new FloorplanEditor(document.body, { tool: 'marker', readOnly: true });
+    expect(editor.getTool()).toBe('select');
+    expect(editor.isReadOnly()).toBe(true);
+  });
+});
