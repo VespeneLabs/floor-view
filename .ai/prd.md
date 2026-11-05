@@ -122,11 +122,21 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 ### 3.8 AI import server (Must)
 
 - FR-SRV-01: `POST /api/architect` streams one model turn as NDJSON events (`text`, `thinking`, `tool_progress`, `done`, `error`). It is served by the Vite dev and preview servers.
-- FR-SRV-02: The agent definition (model, system prompt, tools) lives only on the server and is kept byte-stable, because it is the cached prompt prefix.
+- FR-SRV-02: The agent definition (system prompt, tools) lives only on the server (`/architect/server`) and is kept byte-stable, because it is the cached prompt prefix.
 - FR-SRV-03: The browser runs the tool loop and keeps the conversation append-only: assistant turns are replayed exactly as returned.
 - FR-SRV-04: Requests are limited to 25 MB. When the browser disconnects (Stop, closed tab), generation is aborted.
 - FR-SRV-05: Model settings: `claude-opus-5-5`, adaptive thinking with summarized display, effort `high`, streaming with eager tool-input streaming, automatic prompt caching and server-side fallback for requests declined by a safety classifier.
 - FR-SRV-06: The key is read from `ANTHROPIC_API_KEY` (environment or `studio/.env.local`) or an `ant auth login` profile.
+
+### 3.9 Embeddable AI architect (Must)
+
+- FR-ARC-01: The assistant is part of the library, so other apps can embed it: `@vespenelabs/floorview/architect` (browser, no React) and `@vespenelabs/floorview/architect/server` (Node, framework-free). Studio uses these exports.
+- FR-ARC-02: `ArchitectController` runs the tool loop headlessly (append-only conversation, `ask_user`, proposal conversion and validation, preview image sent back to the model) and exposes immutable state snapshots and `change`/`proposal` events.
+- FR-ARC-03: The transport is pluggable; `createFetchTransport` lets the host choose the URL, headers and credentials (e.g. a session cookie).
+- FR-ARC-04: `runArchitectTurn(request, model, options)` yields one turn's events so any server framework can stream NDJSON; `createArchitectMiddleware` wraps it for Node `http`/Connect.
+- FR-ARC-05: The model is provider-agnostic behind `ArchitectModel`. `createAnthropicArchitectModel({ client | apiKey, model })` uses `@anthropic-ai/sdk` as an optional peer dependency; `createMockArchitectModel` serves the scripted assistant for host tests and e2e.
+- FR-ARC-06: Hosts add domain guidance with `extraInstructions`, appended to the system prompt after the cached agent prompt.
+- FR-ARC-07: The server helper enforces request limits (message count, total image bytes, image count, text size) and reports violations as 413 (malformed requests as 400) before streaming.
 
 ### 3.9 Non-functional requirements
 

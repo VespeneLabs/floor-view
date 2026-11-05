@@ -15,6 +15,12 @@
     "*": {
       "model": [
         "./dist/types/model/index.d.ts"
+      ],
+      "architect": [
+        "./dist/types/architect/index.d.ts"
+      ],
+      "architect/server": [
+        "./dist/types/architect/server/index.d.ts"
       ]
     }
   },
@@ -28,6 +34,16 @@
       "types": "./dist/types/model/index.d.ts",
       "import": "./dist/model.js",
       "require": "./dist/model.cjs"
+    },
+    "./architect": {
+      "types": "./dist/types/architect/index.d.ts",
+      "import": "./dist/architect.js",
+      "require": "./dist/architect.cjs"
+    },
+    "./architect/server": {
+      "types": "./dist/types/architect/server/index.d.ts",
+      "import": "./dist/architect/server.js",
+      "require": "./dist/architect/server.cjs"
     },
     "./style.css": "./dist/vespenelabs-floorview.css"
   },
@@ -46,7 +62,13 @@
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "peerDependencies": {
-    "three": ">=0.160.0"
+    "three": ">=0.160.0",
+    "@anthropic-ai/sdk": ">=1.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

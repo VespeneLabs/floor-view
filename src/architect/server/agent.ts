@@ -1,14 +1,21 @@
-import type Anthropic from '@anthropic-ai/sdk';
-
 /**
- * The floor plan assistant: a Claude agent that turns a scanned drawing into a Floorview plan.
+ * The floor plan assistant: an agent that turns a scanned drawing into a Floorview plan.
  * The browser drives the loop (it renders questions and previews, and validates proposals); this
- * file only defines the agent. Keep `system` and `tools` byte-stable: they are the cached prefix.
+ * file only defines the agent, provider-neutrally. Keep `ARCHITECT_SYSTEM` and
+ * `ARCHITECT_TOOL_DEFINITIONS` byte-stable: they are the cached prompt prefix. Hosts add their own
+ * guidance with `extraInstructions`, which goes after this prompt.
  */
 
-export const ARCHITECT_MODEL = 'claude-opus-5-5';
+/** A tool the model may call. `input_schema` is JSON Schema. */
+export interface ArchitectToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  /** The input is large: stream it as it is generated (the client validates it). */
+  streamInput?: boolean;
+}
 
-export const ARCHITECT_SYSTEM = `You are the floor plan assistant inside Floorview Studio. You combine two roles: a specialist in this app's floor plan model, and a senior architect with long experience in industrial buildings - factories, production halls, warehouses, logistics centres and the offices and amenities attached to them.
+export const ARCHITECT_SYSTEM = `You are the floor plan assistant inside a floor plan app. You combine two roles: a specialist in this app's floor plan model, and a senior architect with long experience in industrial buildings - factories, production halls, warehouses, logistics centres and the offices and amenities attached to them.
 
 The person you are helping is usually not a designer. They upload a scanned drawing, an old blueprint or a hand sketch of their facility and want a clean digital floor plan they can refine afterwards in the editor. Your job is to turn the drawing into a good first plan, asking only what you genuinely need to know.
 
@@ -28,7 +35,7 @@ If a tool result reports problems with a proposal, fix them and propose again. I
 
 Write for a non-specialist: short, friendly and concrete; explain any technical term you use. Reply in the user's language.`;
 
-export const ARCHITECT_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
+export const ARCHITECT_TOOL_DEFINITIONS: ArchitectToolDefinition[] = [
   {
     name: 'ask_user',
     description:
@@ -63,8 +70,8 @@ export const ARCHITECT_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
     name: 'propose_floor_plan',
     description:
       'Show the user a complete draft floor plan built from the drawing (always the whole plan, also for revisions). Coordinates are pixels of the uploaded image (origin top-left, x right, y down); metersPerPixel converts them to meters. The app checks the geometry: the tool result either lists problems to fix, or confirms the plan is shown with a summary and an image of your plan drawn over the scan (walls red, room outlines blue, markers green). Use that image to check alignment with the drawing, and send a corrected plan if something is clearly off before presenting the draft.',
-    // Plans are large: stream the input as it is generated. The browser validates it (plan-conversion.ts).
-    eager_input_streaming: true,
+    // Plans are large: stream the input as it is generated. The browser validates it (conversion.ts).
+    streamInput: true,
     input_schema: {
       type: 'object',
       properties: {

@@ -1,10 +1,10 @@
+import { ACCEPTED_SCAN_TYPES, prepareScan, type Scan } from '@vespenelabs/floorview/architect';
 import { FileImage, Upload } from 'lucide-react';
 import { cn } from 'cn';
 import { useId, useState } from 'react';
 
 import { ChatPanel } from './ChatPanel';
 import { PlanPreview } from './PlanPreview';
-import { ACCEPTED_TYPES, prepareScan, type Scan } from './scan';
 import { useArchitect, type FacilityDetails, type Proposal } from './useArchitect';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
@@ -84,7 +84,7 @@ function UploadStep({ onScan }: { onScan: (scan: Scan) => void }) {
         <span className="text-sm text-muted-foreground">
           A scan, photo or sketch works (PNG, JPG or WebP). The assistant reads it and builds a first plan with you - you can refine everything afterwards.
         </span>
-        <input id={inputId} type="file" accept={ACCEPTED_TYPES.join(',')} className="sr-only" disabled={busy} onChange={(e) => void accept(e.target.files?.[0])} />
+        <input id={inputId} type="file" accept={ACCEPTED_SCAN_TYPES.join(',')} className="sr-only" disabled={busy} onChange={(e) => void accept(e.target.files?.[0])} />
       </label>
       {error && (
         <p role="alert" className="mt-3 text-sm text-destructive">

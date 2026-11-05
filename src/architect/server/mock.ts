@@ -1,24 +1,22 @@
-import type Anthropic from '@anthropic-ai/sdk';
-
-import type { ArchitectEvent } from '../src/features/import/protocol.ts';
+import type { ArchitectContentBlock, ArchitectEvent, ArchitectMessage } from '../protocol';
+import type { ArchitectModel } from './run';
 
 /**
- * Scripted stand-in for the assistant (ARCHITECT_MOCK=1): asks questions, proposes a generic
- * factory sized to the uploaded image, then summarizes. Lets the wizard be demoed and tested
- * without credentials; it does not look at the drawing.
+ * Scripted stand-in for the assistant: asks two questions, proposes a generic factory sized to the
+ * uploaded image, then summarizes. For demos, host tests and e2e runs without credentials; it
+ * does not look at the drawing. It reads the image size from a "W × H px" mention in the first
+ * message (as `architectBrief` writes it).
  */
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+type Block = ArchitectContentBlock;
+const text = (value: string): Block => ({ type: 'text', text: value });
+const toolUse = (id: string, name: string, input: unknown): Block => ({ type: 'tool_use', id, name, input });
 
-type Block = Anthropic.Beta.BetaContentBlock;
-const text = (value: string): Block => ({ type: 'text', text: value, citations: null }) as Block;
-const toolUse = (id: string, name: string, input: unknown): Block => ({ type: 'tool_use', id, name, input }) as Block;
-
-function imageSize(messages: Anthropic.Beta.BetaMessageParam[]): { width: number; height: number } {
+function imageSize(messages: ArchitectMessage[]): { width: number; height: number } {
   const first = messages[0];
-  const blocks = typeof first?.content === 'string' ? [{ type: 'text', text: first.content }] : (first?.content ?? []);
+  const blocks: Block[] = typeof first?.content === 'string' ? [text(first.content)] : (first?.content ?? []);
   for (const block of blocks) {
-    const match = block.type === 'text' && 'text' in block ? /(\d+)\s*[×x]\s*(\d+)\s*px/.exec(block.text) : null;
+    const match = block.type === 'text' && typeof block.text === 'string' ? /(\d+)\s*[×x]\s*(\d+)\s*px/.exec(block.text) : null;
     if (match) return { width: Number(match[1]), height: Number(match[2]) };
   }
   return { width: 1500, height: 1000 };
@@ -78,29 +76,44 @@ function factoryProposal(width: number, height: number) {
   };
 }
 
-async function streamText(value: string, send: (e: ArchitectEvent) => void, stopped: () => boolean) {
+export interface MockArchitectModelOptions {
+  /** Multiplies the scripted delays (word streaming, "thinking"). 0 for tests. Default 1. */
+  latency?: number;
+}
+
+/** The scripted assistant as an `ArchitectModel`. */
+export function createMockArchitectModel(options: MockArchitectModelOptions = {}): ArchitectModel {
+  const latency = options.latency ?? 1;
+  return {
+    async *streamTurn({ messages }, { signal, onUsage }) {
+      const sleep = (ms: number) => (latency > 0 ? new Promise((r) => setTimeout(r, ms * latency)) : Promise.resolve());
+      for await (const event of mockTurn(messages, sleep)) {
+        if (signal.aborted) return;
+        if (event.type === 'done') onUsage?.({ model: 'mock', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
+        yield event;
+      }
+    },
+  };
+}
+
+async function* streamText(value: string, sleep: (ms: number) => Promise<unknown>): AsyncGenerator<ArchitectEvent> {
   for (const word of value.split(/(?<= )/)) {
-    if (stopped()) return;
-    send({ type: 'text', text: word });
+    yield { type: 'text', text: word };
     await sleep(15);
   }
 }
 
-export async function mockTurn(
-  messages: Anthropic.Beta.BetaMessageParam[],
-  send: (e: ArchitectEvent) => void,
-  stopped: () => boolean,
-): Promise<void> {
+async function* mockTurn(messages: ArchitectMessage[], sleep: (ms: number) => Promise<unknown>): AsyncGenerator<ArchitectEvent> {
   const turn = messages.filter((m) => m.role === 'assistant').length;
   const { width, height } = imageSize(messages);
-  send({ type: 'thinking', text: 'Mock mode: no model is called. ' });
+  yield { type: 'thinking', text: 'Mock mode: no model is called. ' };
   await sleep(400);
 
   if (turn === 0) {
     const intro =
       "Thanks for the drawing! I'm running in mock mode, so I won't really read it - but here's how the conversation works. Two quick questions before I draft:";
-    await streamText(intro, send, stopped);
-    send({
+    yield* streamText(intro, sleep);
+    yield {
       type: 'done',
       stopReason: 'tool_use',
       content: [
@@ -112,7 +125,7 @@ export async function mockTurn(
           ],
         }),
       ],
-    });
+    };
     return;
   }
 
@@ -122,19 +135,18 @@ export async function mockTurn(
   if (lastIsToolResult) {
     const summary =
       "Here's a first draft: a production hall and a warehouse under one roof, with offices, a canteen and a loading area along the south side, two docks and the main entrance. I assumed the building is 90 m wide. Tell me what to change - for example room names, sizes or missing areas.";
-    await streamText(summary, send, stopped);
-    send({ type: 'done', stopReason: 'end_turn', content: [text(summary)] });
+    yield* streamText(summary, sleep);
+    yield { type: 'done', stopReason: 'end_turn', content: [text(summary)] };
     return;
   }
 
   for (let chars = 2000; chars <= 6000; chars += 2000) {
-    if (stopped()) return;
-    send({ type: 'tool_progress', chars });
+    yield { type: 'tool_progress', chars };
     await sleep(250);
   }
-  send({
+  yield {
     type: 'done',
     stopReason: 'tool_use',
     content: [toolUse(`toolu_mock_plan_${turn}`, 'propose_floor_plan', factoryProposal(width, height))],
-  });
+  };
 }
