@@ -123,9 +123,11 @@
 
 /* Host-managed overlay points (setOverlayPoints): fixed screen size, above the plan. */
 .vl-editor__overlay-point { cursor: grab; }
-.vl-editor__overlay-point circle { stroke: var(--vl-overlay-stroke); stroke-width: 2; }
-.vl-editor__overlay-point circle:not([fill]) { fill: var(--vl-overlay); }
-.vl-editor__overlay-point.is-selected circle { stroke: var(--vl-selection); stroke-width: 3; }
+.vl-editor__overlay-glyph { stroke: var(--vl-overlay-stroke); stroke-width: 2; stroke-linejoin: round; }
+.vl-editor__overlay-glyph:not([fill]) { fill: var(--vl-overlay); }
+.vl-editor__overlay-point.is-selected .vl-editor__overlay-glyph { stroke: var(--vl-selection); stroke-width: 3; }
+/* Alert ring (OverlayPoint.ring): its color is a stroke attribute. */
+.vl-editor__overlay-ring { fill: none; stroke-width: 2.5; }
 .vl-editor.is-panning .vl-editor__overlay-point { cursor: grabbing; }
 .vl-editor__overlay-label {
   fill: var(--vl-label);

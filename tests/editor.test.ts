@@ -142,6 +142,27 @@ describe('FloorplanEditor overlay points', () => {
     expect(editor.canUndo()).toBe(false);
   });
 
+  it('draws shape glyphs and alert rings like the viewer', () => {
+    const { editor } = setup();
+    const levelId = editor.getActiveLevel().id;
+    editor.setOverlayPoints([
+      { id: 'a', levelId, position: { x: 2, y: 2 } },
+      { id: 'b', levelId, position: { x: 4, y: 2 }, shape: 'cone', ring: '#dc2626' },
+      { id: 'c', levelId, position: { x: 6, y: 2 }, shape: 'diamond', color: '#3b82f6' },
+      { id: 'd', levelId, position: { x: 8, y: 2 }, shape: 'bogus' as never },
+    ]);
+    const glyph = (id: string) => editor.element.querySelector(`[data-overlay-id="${id}"] .vl-editor__overlay-glyph`)!;
+    expect(glyph('a').tagName).toBe('circle');
+    expect(glyph('b').tagName).toBe('polygon');
+    expect(glyph('b').getAttribute('points')!.split(' ')).toHaveLength(3); // triangle
+    expect(glyph('c').getAttribute('points')!.split(' ')).toHaveLength(4);
+    expect(glyph('c').getAttribute('fill')).toBe('#3b82f6');
+    expect(glyph('d').getAttribute('data-shape')).toBe('sphere'); // unknown → default circle
+    const rings = [...editor.element.querySelectorAll('.vl-editor__overlay-ring')];
+    expect(rings.map((r) => r.closest('[data-overlay-id]')!.getAttribute('data-overlay-id'))).toEqual(['b']);
+    expect(rings[0]!.getAttribute('stroke')).toBe('#dc2626');
+  });
+
   it('selects and drags a point (snapped), emitting one move on drop without touching the plan', () => {
     const { editor, at } = setup();
     const levelId = editor.getActiveLevel().id;

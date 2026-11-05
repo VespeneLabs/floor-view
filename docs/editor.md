@@ -105,6 +105,7 @@ editor.element.addEventListener('drop', (e) => {
 ```
 
 - Only the active level's points are drawn, at a fixed screen size, with an optional `label`. `color` sets the fill (default `--vl-overlay`).
+- `shape` picks the glyph, the same as the viewer's 2D point glyphs (`POINT_GLYPHS`): `'sphere'` → circle (default), `'box'` → square, `'cylinder'` → hexagon, `'cone'` → triangle, `'diamond'` → diamond. `ring: '#dc2626'` draws an outline ring around the point (e.g. alert state), like the viewer's `ring`. Glyphs are styled by `.vl-editor__overlay-glyph`, rings by `.vl-editor__overlay-ring`.
 - With the `select` tool (also in read-only mode), clicking a point selects it (`overlaypointselect`) and dragging moves it, snapped like markers (hold `Alt` to bypass). The editor emits one `overlaypointmove` on drop and keeps showing the dropped position until you call `setOverlayPoints` again. `draggable: false` makes a point selectable only.
 - `setOverlayPoints` replaces all points; calling it during a drag keeps the dragged point under the pointer.
 
