@@ -29,6 +29,28 @@ viewer.on('click', ({ target }) => console.log('clicked', target));
 
 Both components fill their container, so give the container a size.
 
+## Installing from GitHub Packages
+
+The package is published to GitHub Packages (`https://npm.pkg.github.com`) as a private package. To consume it:
+
+1. Grant the consuming repository read access, once per repository: on GitHub, open **VespeneLabs → Packages → floorview → Package settings → Manage Actions access**, click **Add repository**, pick the repository (e.g. `VespeneLabs/gas-view`) and give it the **Read** role. This lets that repository's GitHub Actions install the package with its own `GITHUB_TOKEN`.
+2. Point the `@vespenelabs` scope at GitHub Packages in the consumer's `.npmrc`:
+
+   ```ini
+   @vespenelabs:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+   ```
+
+   Locally, set `NODE_AUTH_TOKEN` to a personal access token (classic) with the `read:packages` scope, from an account that can see the package. In GitHub Actions, give the job `permissions: packages: read` and set `NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`.
+3. Install it: `npm install @vespenelabs/floorview three` (or `pnpm add`).
+
+### Releasing
+
+1. Bump `version` in `package.json` (e.g. `npm version 0.2.0 --no-git-tag-version`) and merge that to `main`.
+2. Tag the release commit and push the tag: `git tag v0.2.0 && git push origin v0.2.0`.
+
+The `Publish package` workflow (`.github/workflows/publish.yml`) checks that the tag matches `package.json`, then runs `npm publish`. To retry a failed publish without re-tagging, run the workflow manually (**Actions → Publish package → Run workflow**) and pick the version tag under *Use workflow from*. A run started from a branch stops at the version check. `prepublishOnly` runs the typecheck, the tests and the library build first, so `dist/` is always rebuilt from the tagged source.
+
 ## Scripts
 
 | Command | What it does |
