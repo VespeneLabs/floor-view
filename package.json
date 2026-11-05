@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Floorview: a floor plan viewer (2D/3D) and editor for the web, by VespeneLabs.",
   "license": "UNLICENSED",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VespeneLabs/floor-view.git"
+  },
   "type": "module",
   "main": "./dist/vespenelabs-floorview.umd.cjs",
   "module": "./dist/vespenelabs-floorview.js",
@@ -27,7 +30,8 @@
     "preview:studio": "vite preview studio",
     "typecheck": "tsc --noEmit && tsc --noEmit -p studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "peerDependencies": {
     "three": ">=0.160.0"
@@ -52,5 +56,9 @@
     "typescript": "^5.9.3",
     "vite": "^8.3.5",
     "vitest": "^5.1.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
   }
 }
