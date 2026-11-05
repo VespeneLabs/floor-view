@@ -16,6 +16,7 @@ import { StatusBadge, MetricLegend } from './widgets';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { VespeneLabsMark } from '@/components/VespeneLabsMark';
 import { useStudio } from '@/features/studio/studio-context';
@@ -61,18 +62,25 @@ function roomLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Read
   };
 }
 
-function sensorLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Reading>): PointLayer {
+/** Live readings as point labels; sensors in the "poor" band get an alert ring. */
+function sensorLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Reading>, showValues: boolean, alert: string): PointLayer {
   return {
-    id: 'aq-sensors',
+    id: SENSOR_LAYER,
     type: 'points',
     size: 0.25,
     elevation: 1.2,
-    points: sensors.map((s) => ({
-      id: s.id,
-      levelId: s.levelId,
-      position: s.position,
-      color: colorFor(metric, readings.get(s.id)![metric.id]),
-    })),
+    showLabels: showValues,
+    label: (p) => formatValue(metric, readings.get(p.id)![metric.id]),
+    points: sensors.map((s) => {
+      const value = readings.get(s.id)![metric.id];
+      return {
+        id: s.id,
+        levelId: s.levelId,
+        position: s.position,
+        color: colorFor(metric, value),
+        ring: bandOf(metric, value).tone === 'poor' ? alert : null,
+      };
+    }),
     tooltip: (p) => {
       const sensor = sensors.find((s) => s.id === p.id);
       const reading = readings.get(p.id);
@@ -85,6 +93,8 @@ function sensorLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Re
     },
   };
 }
+
+const SENSOR_LAYER = 'aq-sensors';
 
 function useAirQualityViewer(plan: FloorPlan | null) {
   const container = useRef<HTMLDivElement>(null);
@@ -121,6 +131,8 @@ export function AirQualityView() {
   const [level, setLevel] = useState<LevelSelection | null>(null);
   const [hour, setHour] = useState(startHour);
   const [playing, setPlaying] = useState(false);
+  const [showValues, setShowValues] = useState(true);
+  const valuesId = useId();
   const [, startTransition] = useTransition();
   const sliderId = useId();
 
@@ -150,10 +162,11 @@ export function AirQualityView() {
     if (!viewer || !plan) return;
     viewer.setLayer(roomLayer(metric, sensors, readings, cssToken('--muted')));
     viewer.setLayer(heatmapLayer(metric, sensors, readings));
-    viewer.setLayer(sensorLayer(metric, sensors, readings));
+    // Same ids every tick: the viewer updates the existing layers in place.
+    viewer.setLayer(sensorLayer(metric, sensors, readings, showValues, cssToken('--destructive')));
     // `sensors` and `readings` are derived from plan + hour on every render, so the effect is keyed
     // on those inputs instead of the (always new) derived objects.
-  }, [viewer, plan, metric, hour, theme]);
+  }, [viewer, plan, metric, hour, theme, showValues]);
 
   const ranked = [...sensors].sort(
     (a, b) => severity(metric, readings.get(b.id)![metricId]) - severity(metric, readings.get(a.id)![metricId]),
@@ -201,7 +214,7 @@ export function AirQualityView() {
       </Panel>
 
       <Panel title="Sensors" className="lg:min-h-0">
-        <div className="grid min-h-0 flex-1 content-start gap-5 overflow-y-auto p-3">
+        <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-5 overflow-y-auto p-3">
           <section className="grid gap-2" aria-labelledby="aq-metric">
             <h3 id="aq-metric" className="text-xs text-muted-foreground">
               Metric
@@ -278,11 +291,19 @@ export function AirQualityView() {
             </div>
           </section>
 
-          <section className="grid gap-1" aria-labelledby="aq-list">
-            <h3 id="aq-list" className="text-xs text-muted-foreground">
-              Rooms, worst first
-            </h3>
-            <ul className="grid gap-1">
+          <section className="grid grid-cols-1 gap-1" aria-labelledby="aq-list">
+            <div className="flex items-center justify-between gap-2">
+              <h3 id="aq-list" className="text-xs text-muted-foreground">
+                Rooms, worst first
+              </h3>
+              <div className="flex items-center gap-2">
+                <Switch id={valuesId} size="sm" checked={showValues} onCheckedChange={setShowValues} />
+                <Label htmlFor={valuesId} className="text-xs font-normal text-muted-foreground">
+                  Values on plan
+                </Label>
+              </div>
+            </div>
+            <ul className="grid grid-cols-1 gap-1">
               {ranked.map((s) => {
                 const value = readings.get(s.id)![metricId];
                 const band = bandOf(metric, value);
@@ -292,6 +313,7 @@ export function AirQualityView() {
                       type="button"
                       onClick={() => {
                         setLevel(s.levelId);
+                        viewer?.focus({ kind: 'point', layerId: SENSOR_LAYER, id: s.id }, { highlight: { duration: 4000 } });
                         announce(`${s.roomName}: ${formatValue(metric, value)}, ${band.label}`);
                       }}
                       className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"

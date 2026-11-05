@@ -74,6 +74,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-VIEW-04: Clicking or hovering a room, wall, marker or data point emits `click` / `hover` events with the picked entity. Hover shows a tooltip.
 - FR-VIEW-05: Rendering happens on demand (only when something changed), to save battery and CPU.
 - FR-VIEW-06: The background color, an underlay image (textured plane) and `screenshot()` are available. `fitView()` frames the plan.
+- FR-VIEW-08: `focus(target)` centers the camera on a data point, room, wall, marker or position (switching level if needed) and highlights it with a ring or outline, e.g. for "Show on floor plan" links.
 - FR-VIEW-07: Colors in any CSS syntax (including `hsl()` with spaces and `oklch()`) are converted correctly for Three.js.
 
 ### 3.4 Data layers (Must)
@@ -82,6 +83,8 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-LAY-02: **Point layer:** draws data points (e.g. sensors) as spheres at plan positions, with color, size and tooltip.
 - FR-LAY-03: **Heatmap layer:** interpolates point values over the floor (inverse distance weighting), colors them with configurable color stops and clips the result to rooms.
 - FR-LAY-04: Layers are added, replaced and removed by ID. They are re-applied automatically when the plan changes, and an open tooltip refreshes when the layer data changes.
+- FR-LAY-05: Point layers can show a persistent text label per point (e.g. a live reading), toggled per layer independently of the plan's room labels, and an outline ring per point (e.g. alert state) separate from the fill color.
+- FR-LAY-06: Replacing a points or heatmap layer with new values updates the scene in place (points matched by ID, heatmap texture refilled with a cached room mask), so values can update every 1–5 s for about 100 points without rebuilding the scene. `updateLayer(id, patch)` merges a partial update.
 
 ### 3.5 Floorview Studio: editor page (Must)
 

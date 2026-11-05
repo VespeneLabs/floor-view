@@ -3,6 +3,7 @@ import { polygonCentroid } from '../model/geometry';
 import { toThreeColor } from './color';
 import type { FloorPlan, Level } from '../model/types';
 import type { PointLayer } from './layers';
+import { PointLayerView } from './pointLayer';
 
 /** What a pickable mesh represents. Stored on `mesh.userData.pick`. */
 export interface PickInfo {
@@ -18,6 +19,8 @@ export interface SceneColors {
   room: string;
   marker: string;
   point: string;
+  /** `focus()` highlight ring/outline. */
+  highlight: string;
 }
 
 export const DEFAULT_SCENE_COLORS: SceneColors = {
@@ -25,6 +28,7 @@ export const DEFAULT_SCENE_COLORS: SceneColors = {
   room: '#dbe3ec',
   marker: '#6366f1',
   point: '#f97316',
+  highlight: '#facc15',
 };
 
 /** Height of room floors above the level elevation, to avoid z-fighting. */
@@ -110,31 +114,17 @@ export function buildPlan(plan: FloorPlan, colors: SceneColors = DEFAULT_SCENE_C
 
 /**
  * Build point-layer meshes, one group per level (keyed by level id).
- * Points whose level does not exist are skipped.
+ * Points whose level does not exist are skipped. The viewer keeps a `PointLayerView` instead,
+ * to update points in place.
  */
 export function buildPointLayer(
   layer: PointLayer,
   levelIds: ReadonlySet<string>,
   defaultColor = DEFAULT_SCENE_COLORS.point,
 ): Map<string, THREE.Group> {
-  const groups = new Map<string, THREE.Group>();
-  const geometry = new THREE.SphereGeometry(1, 20, 14);
-  for (const p of layer.points) {
-    if (!levelIds.has(p.levelId)) continue;
-    let group = groups.get(p.levelId);
-    if (!group) {
-      group = new THREE.Group();
-      group.name = `layer:${layer.id}`;
-      groups.set(p.levelId, group);
-    }
-    const material = new THREE.MeshStandardMaterial({ color: toThreeColor(p.color ?? layer.color ?? defaultColor), roughness: 0.4 });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.scale.setScalar(p.size ?? layer.size ?? 0.25);
-    mesh.position.set(p.position.x, layer.elevation ?? 1, p.position.y);
-    tag(mesh, { kind: 'point', id: p.id, levelId: p.levelId, layerId: layer.id });
-    group.add(mesh);
-  }
-  return groups;
+  const view = new PointLayerView(layer.id);
+  view.sync(layer, levelIds, defaultColor);
+  return view.groups;
 }
 
 /**

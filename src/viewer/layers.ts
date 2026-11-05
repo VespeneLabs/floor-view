@@ -22,10 +22,16 @@ export interface PointDatum {
   color?: string;
   /** Sphere radius in meters. */
   size?: number;
+  /** Outline ring color around the point, e.g. for alert state independent of the fill color. Null/undefined: no ring. */
+  ring?: string | null;
   data?: Record<string, unknown>;
 }
 
-/** Renders data points (sensors, people, assets…) as spheres on top of the plan. */
+/**
+ * Renders data points (sensors, people, assets…) as spheres on top of the plan.
+ * Replacing a points layer with `setLayer`/`updateLayer` updates the existing objects in place
+ * (matched by point id), so frequent value updates are cheap.
+ */
 export interface PointLayer {
   id: string;
   type: 'points';
@@ -37,6 +43,13 @@ export interface PointLayer {
   /** Height above the level floor in meters. Default 1. */
   elevation?: number;
   tooltip?: (point: PointDatum) => string | null | undefined;
+  /**
+   * Persistent text label above each point (plain text), e.g. a live reading. Return null or
+   * undefined for no label. Independent of the plan's room labels (`setShowLabels`).
+   */
+  label?: (point: PointDatum) => string | null | undefined;
+  /** Show the `label`s. Default true. Toggle with `updateLayer(id, { showLabels })`. */
+  showLabels?: boolean;
 }
 
 export interface HeatmapPoint {
@@ -49,6 +62,8 @@ export interface HeatmapPoint {
  * A continuous surface interpolated from point values (inverse distance weighting), drawn on the
  * floor, e.g. CO₂ or temperature from sensors. Rendered per level as a texture; not pickable, so
  * hovering still reaches the rooms underneath (pair it with a room layer for tooltips).
+ * Replacing it with new values (`setLayer`/`updateLayer`) refills the existing texture; the
+ * room mask is cached until the plan or `resolution`/`clipToRooms` change.
  */
 export interface HeatmapLayer {
   id: string;

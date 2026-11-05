@@ -5,11 +5,12 @@ import { Emitter } from '../core/emitter';
 import { clonePlan } from '../model/plan';
 import type { FloorPlan, Level, Point, Underlay } from '../model/types';
 import { toThreeColor } from './color';
-import { buildHeatmapMesh, rasterizeHeatmap } from './heatmap';
-import type { DataLayer, PointLayer, RoomLayer } from './layers';
+import { buildHighlight, resolveFocus, type FocusOptions, type FocusTarget } from './focus';
+import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type HeatmapGrid } from './heatmap';
+import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
+import { PointLayerView } from './pointLayer';
 import {
   buildPlan,
-  buildPointLayer,
   DEFAULT_SCENE_COLORS,
   disposeObject,
   type BuiltLevel,
@@ -46,6 +47,14 @@ export interface ViewerEvents {
   levelchange: LevelSelection;
 }
 
+interface HeatmapLevel {
+  group: THREE.Group;
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  grid: HeatmapGrid;
+  /** Settings the grid depends on; a change rebuilds it. */
+  key: string;
+}
+
 /** Max pointer travel (px) between down and up that still counts as a click. */
 const CLICK_TOLERANCE = 4;
 const HOVER_EMISSIVE = new THREE.Color('#2a3550');
@@ -77,7 +86,10 @@ export class FloorplanViewer {
   private plan: FloorPlan | null = null;
   private built: BuiltLevel[] = [];
   private layers: DataLayer[] = [];
-  private layerGroups = new Map<string, THREE.Group[]>();
+  private pointViews = new Map<string, PointLayerView>();
+  /** Heatmap layer id → level id → its mesh, cached grid (room mask) and pixel buffer. */
+  private heatmaps = new Map<string, Map<string, HeatmapLevel>>();
+  private focusState: { target: FocusTarget; color: string; mesh: THREE.Mesh | null; timer: ReturnType<typeof setTimeout> | null } | null = null;
   private underlay: { spec: Underlay; levelId?: string; mesh: THREE.Mesh } | null = null;
   private mode: ViewMode;
   private level: LevelSelection;
@@ -179,6 +191,7 @@ export class FloorplanViewer {
     this.attachUnderlay();
     this.applyRoomColors();
     this.applyLevelVisibility();
+    this.updateHighlight();
     if (fit ?? first) this.fitView();
     this.requestRender();
   }
@@ -257,16 +270,34 @@ export class FloorplanViewer {
     return this.layers;
   }
 
-  /** Add a data layer, or replace the layer with the same id. */
+  /**
+   * Add a data layer, or replace the layer with the same id. Replacing a points or heatmap layer
+   * with one of the same type updates its scene objects in place (points matched by id, the
+   * heatmap texture refilled), so calling this every few seconds with fresh values is cheap.
+   */
   setLayer(layer: DataLayer): void {
-    this.removeLayerObjects(layer.id);
     const index = this.layers.findIndex((l) => l.id === layer.id);
+    const previous = index >= 0 ? this.layers[index] : undefined;
+    if (previous?.type !== layer.type) this.removeLayerObjects(layer.id);
     if (index >= 0) this.layers[index] = layer;
     else this.layers.push(layer);
     this.applyLayer(layer);
-    this.applyRoomColors();
+    if (layer.type === 'rooms' || previous?.type === 'rooms') this.applyRoomColors();
+    if (this.focusState?.target.kind === 'point' && this.focusState.target.layerId === layer.id) this.updateHighlight();
     this.refreshTooltip();
     this.requestRender();
+  }
+
+  /**
+   * Merge `patch` into an existing layer and apply it like `setLayer` (in place for points and
+   * heatmaps), e.g. `updateLayer('sensors', { points })` or `updateLayer('sensors', { showLabels: false })`.
+   * Returns false when there is no layer with that id.
+   */
+  updateLayer<T extends DataLayer>(id: string, patch: Partial<Omit<T, 'id' | 'type'>>): boolean {
+    const layer = this.layers.find((l) => l.id === id);
+    if (!layer) return false;
+    this.setLayer({ ...layer, ...patch } as DataLayer);
+    return true;
   }
 
   removeLayer(id: string): void {
@@ -274,6 +305,50 @@ export class FloorplanViewer {
     this.layers = this.layers.filter((l) => l.id !== id);
     this.applyRoomColors();
     this.refreshTooltip();
+    this.requestRender();
+  }
+
+  /**
+   * Center the camera on a data point, plan entity or position (keeping the current zoom),
+   * switching to its level when it isn't visible, and highlight it with a ring (points, markers,
+   * positions) or an outline (rooms, walls). The highlight stays until `clearHighlight()`, the
+   * next `focus()` or its `duration`; it follows a focused point when its layer updates.
+   * Returns false when the target doesn't exist.
+   */
+  focus(target: FocusTarget, options: FocusOptions = {}): boolean {
+    if (!this.plan) return false;
+    const resolved = resolveFocus(this.plan, target, this.lookupPoint);
+    if (!resolved) return false;
+    if (!this.visibleLevelIds().has(resolved.levelId)) this.setLevel(resolved.levelId);
+
+    const elevation = this.levelById(resolved.levelId)?.elevation ?? 0;
+    const center = new THREE.Vector3(resolved.center.x, elevation + resolved.height, resolved.center.y);
+    const delta = center.clone().sub(this.controls.target);
+    this.camera.position.add(delta);
+    this.controls.target.copy(center);
+    this.controls.update();
+
+    this.clearHighlight();
+    const highlight = options.highlight ?? true;
+    if (highlight) {
+      const spec = typeof highlight === 'object' ? highlight : {};
+      this.focusState = { target, color: spec.color ?? this.colors.highlight, mesh: null, timer: null };
+      if (spec.duration) this.focusState.timer = setTimeout(() => this.clearHighlight(), spec.duration);
+      this.updateHighlight();
+    }
+    this.requestRender();
+    return true;
+  }
+
+  /** Remove the `focus()` highlight. */
+  clearHighlight(): void {
+    if (!this.focusState) return;
+    if (this.focusState.timer) clearTimeout(this.focusState.timer);
+    if (this.focusState.mesh) {
+      this.focusState.mesh.removeFromParent();
+      disposeObject(this.focusState.mesh);
+    }
+    this.focusState = null;
     this.requestRender();
   }
 
@@ -321,6 +396,7 @@ export class FloorplanViewer {
     cancelAnimationFrame(this.frame);
     this.resizeObserver.disconnect();
     this.controls.dispose();
+    this.clearHighlight();
     this.removeUnderlay();
     this.clearPlan();
     this.renderer.dispose();
@@ -394,7 +470,8 @@ export class FloorplanViewer {
   private clearPlan(): void {
     // The underlay outlives plan rebuilds: detach it before the level groups are disposed.
     this.underlay?.mesh.removeFromParent();
-    for (const id of [...this.layerGroups.keys()]) this.removeLayerObjects(id);
+    this.focusState?.mesh?.removeFromParent();
+    for (const id of new Set([...this.pointViews.keys(), ...this.heatmaps.keys()])) this.removeLayerObjects(id);
     for (const b of this.built) {
       disposeObject(b.group);
       this.planGroup.remove(b.group);
@@ -428,36 +505,94 @@ export class FloorplanViewer {
   private applyLayer(layer: DataLayer): void {
     if (!this.plan) return;
     if (layer.type === 'points') {
-      const groups = buildPointLayer(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point);
-      for (const [levelId, group] of groups) this.built.find((b) => b.levelId === levelId)?.group.add(group);
-      this.layerGroups.set(layer.id, [...groups.values()]);
-    } else if (layer.type === 'heatmap') {
-      const groups: THREE.Group[] = [];
-      for (const b of this.built) {
-        const level = this.levelById(b.levelId);
-        const raster = level && rasterizeHeatmap(level, layer);
-        if (!raster) continue;
-        const group = new THREE.Group();
-        group.name = `layer:${layer.id}`;
-        group.add(buildHeatmapMesh(raster, layer.elevation));
-        b.group.add(group);
-        groups.push(group);
+      let view = this.pointViews.get(layer.id);
+      if (!view) {
+        view = new PointLayerView(layer.id, (levelId, group) => this.built.find((b) => b.levelId === levelId)?.group.add(group));
+        this.pointViews.set(layer.id, view);
       }
-      this.layerGroups.set(layer.id, groups);
+      view.sync(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point);
+    } else if (layer.type === 'heatmap') {
+      this.applyHeatmap(layer);
     }
   }
 
-  private removeLayerObjects(id: string): void {
-    for (const group of this.layerGroups.get(id) ?? []) {
-      disposeObject(group);
-      group.removeFromParent();
+  /** Per level: reuse the mesh and cached grid when only values changed, else (re)build. */
+  private applyHeatmap(layer: HeatmapLayer): void {
+    let levels = this.heatmaps.get(layer.id);
+    if (!levels) this.heatmaps.set(layer.id, (levels = new Map()));
+    const key = `${layer.resolution ?? ''}|${layer.clipToRooms ?? true}|${layer.elevation ?? ''}`;
+    for (const b of this.built) {
+      const level = this.levelById(b.levelId);
+      const points = level ? heatmapPointsOn(layer, b.levelId) : [];
+      let entry = levels.get(b.levelId);
+      if (!level || points.length === 0) {
+        if (entry) this.disposeHeatmapLevel(entry);
+        levels.delete(b.levelId);
+        continue;
+      }
+      // Without room clipping the grid bounds follow the points, so it can't be cached.
+      const reusable = entry && entry.key === key && (layer.clipToRooms ?? true);
+      if (entry && reusable) {
+        const texture = entry.mesh.material.map as THREE.DataTexture;
+        fillHeatmap(entry.grid, points, layer, texture.image.data as Uint8Array<ArrayBuffer>);
+        texture.needsUpdate = true;
+        continue;
+      }
+      if (entry) this.disposeHeatmapLevel(entry);
+      const grid = heatmapGrid(level, layer, points);
+      if (!grid) {
+        levels.delete(b.levelId);
+        continue;
+      }
+      const { width, height, minX, minY, cellSize } = grid;
+      const mesh = buildHeatmapMesh({ data: fillHeatmap(grid, points, layer), width, height, minX, minY, cellSize }, layer.elevation) as HeatmapLevel['mesh'];
+      const group = new THREE.Group();
+      group.name = `layer:${layer.id}`;
+      group.add(mesh);
+      b.group.add(group);
+      entry = { group, mesh, grid, key };
+      levels.set(b.levelId, entry);
     }
-    this.layerGroups.delete(id);
+  }
+
+  private disposeHeatmapLevel(entry: HeatmapLevel): void {
+    disposeObject(entry.group);
+    entry.group.removeFromParent();
+  }
+
+  private removeLayerObjects(id: string): void {
+    this.pointViews.get(id)?.dispose();
+    this.pointViews.delete(id);
+    for (const entry of this.heatmaps.get(id)?.values() ?? []) this.disposeHeatmapLevel(entry);
+    this.heatmaps.delete(id);
     if (this.hovered?.layerId === id) {
       this.hovered = null;
       this.hoveredMesh = null;
       this.tooltip.hidden = true;
     }
+  }
+
+  private lookupPoint = (layerId: string, id: string) => {
+    const found = this.pointViews.get(layerId)?.pointPosition(id);
+    if (!found) return null;
+    return { levelId: found.levelId, position: { x: found.position.x, y: found.position.z }, height: found.position.y, radius: found.radius };
+  };
+
+  /** (Re)draws the focus highlight for the current target, e.g. after a rebuild or a point update. */
+  private updateHighlight(): void {
+    const state = this.focusState;
+    if (!state || !this.plan) return;
+    if (state.mesh) {
+      state.mesh.removeFromParent();
+      disposeObject(state.mesh);
+      state.mesh = null;
+    }
+    const resolved = resolveFocus(this.plan, state.target, this.lookupPoint);
+    const group = resolved && this.built.find((b) => b.levelId === resolved.levelId)?.group;
+    if (!resolved || !group) return;
+    state.mesh = buildHighlight(resolved, toThreeColor(state.color));
+    group.add(state.mesh);
+    this.requestRender();
   }
 
   /** Recompute every room floor color from its base color and the room layers. */

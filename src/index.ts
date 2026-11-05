@@ -10,6 +10,7 @@ export type { LevelSelection, PickEvent, ViewerEvents, ViewerOptions, ViewMode }
 export type { DataLayer, HeatmapLayer, HeatmapPoint, PointDatum, PointLayer, RoomLayer } from './viewer/layers';
 export { interpolateIDW } from './viewer/heatmap';
 export type { PickInfo, SceneColors } from './viewer/sceneBuilder';
+export type { FocusOptions, FocusTarget } from './viewer/focus';
 export { DEFAULT_SCENE_COLORS } from './viewer/sceneBuilder';
 export { toThreeColor } from './viewer/color';
 
