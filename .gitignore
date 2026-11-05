@@ -5,7 +5,3 @@ dist-studio
 .DS_Store
 *.local
 dist-demo
-
-# Third-party Smplrspace bundle, kept locally for reference only (not ours to redistribute)
-smplr.js
-smplr.css

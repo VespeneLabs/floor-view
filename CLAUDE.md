@@ -9,8 +9,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **User-facing docs** live in `README.md` and `docs/`. Keep them in sync when the public API changes.
 - **Product requirements** live in `.ai/prd.md` (FR-/US-/SM- IDs). Update it when a feature is added or its scope changes.
 
-**`smplr.js` / `smplr.css` at the repo root are a third-party (Smplrspace) bundle kept only for reference.** Never import from them, copy code from them, or reverse-engineer them. Don't read them either (about 9.5 MB, minified).
-
 **Keep dependencies minimal.** Add a package only when the browser, React or existing code can't reasonably do the job. For example, there is no state library, toast library, `shadcn` runtime package or `tw-animate-css` (see `docs/studio.md`).
 
 ## Commands
