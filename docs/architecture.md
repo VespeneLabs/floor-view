@@ -3,7 +3,8 @@
 ```
 src/
   index.ts              public API (everything users may import) + styles.css
-  model/                pure data: types, geometry, plan helpers, validation (no DOM, no three)
+  model/                pure data: types, geometry, plan helpers, validation (no DOM, no three);
+                        index.ts is the `@vespenelabs/floorview/model` subpath entry
   core/                 Emitter (typed events), History (snapshot undo/redo)
   viewer/
     sceneBuilder.ts     plan → Three.js meshes (pure, testable without WebGL)
@@ -50,6 +51,7 @@ Editor ────────────────────────�
 | Three.js as a peer dependency | Avoids shipping two copies of three to apps that already use it. |
 | Hand-written validator | No runtime dependency, and errors come with precise JSON paths. |
 | Snapshot undo | Plans are small and simple, so it's robust. It can switch to command-based undo if plans grow large. |
+| Subpath entries built separately | The main entry ships ES + UMD, and Vite's UMD output supports one entry only. `vite build --mode subpaths` builds the subpath entries (`/model`…) as ES + CJS into the same `dist/`. Each subpath `<name>` lives at `src/<name>/index.ts`, and `vite.aliases.ts` maps the package name to source for tests and Studio. |
 | Doors as wall gaps | Keeps the format minimal for v1 (see roadmap). |
 
 ## Roadmap ideas

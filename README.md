@@ -4,7 +4,7 @@
 
 - **`FloorplanViewer`**: an interactive 2D/3D viewer (Three.js) with picking, hover tooltips, multi-level buildings and **data layers** for coloring rooms, plotting points and drawing heatmaps from live data (occupancy, sensors, air quality…).
 - **`FloorplanEditor`**: an SVG editor for drawing walls, rooms and markers on a snapping grid, with selection, move/reshape, levels and undo/redo.
-- A small, versioned **JSON plan format** with a validator, so plans can be stored, exchanged and loaded safely.
+- A small, versioned **JSON plan format** with a validator, so plans can be stored, exchanged and loaded safely. It is also available without Three.js or the DOM as `@vespenelabs/floorview/model`, for use on a server.
 
 It ships with **Floorview Studio** (`studio/`), a React + shadcn/ui demo app: an editor with a live 3D view, plus an **air quality** monitoring demo (`#/air-quality`) and an **AI import** wizard (`#/import`): upload a scanned drawing and a Claude-based assistant asks a few questions and drafts the plan with you.
 

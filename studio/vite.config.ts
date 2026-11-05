@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 
+import { sourceAliases } from '../vite.aliases.ts';
 import { architectMiddleware, type ArchitectOptions } from './server/architect-handler.ts';
 
 const resolvePath = (path: string) => fileURLToPath(new URL(path, import.meta.url));
@@ -34,10 +35,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss(), architectApi({ mock: env.ARCHITECT_MOCK === '1', apiKey: env.ANTHROPIC_API_KEY })],
     resolve: {
       // Keep in sync with `paths` in studio/tsconfig.json (also read by the shadcn CLI).
-      alias: {
-        '@vespenelabs/floorview': resolvePath('../src/index.ts'),
-        '@': resolvePath('./src'),
-      },
+      alias: [...sourceAliases(resolvePath('../src')), { find: '@', replacement: resolvePath('./src') }],
     },
     build: { outDir: '../dist-studio', emptyOutDir: true },
   };
