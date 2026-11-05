@@ -17,4 +17,4 @@ export { toThreeColor } from './viewer/color';
 export { FloorplanEditor } from './editor/Editor';
 export type { EditorEvents, EditorOptions, EditorTool } from './editor/Editor';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';
