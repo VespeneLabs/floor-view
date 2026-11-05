@@ -102,6 +102,42 @@ describe('PointLayerView', () => {
     view.setMode('3d');
     expect(a!.geometry).toBeInstanceOf(THREE.SphereGeometry);
   });
+
+  it('adds, animates and removes alert beams', () => {
+    const beams = (v: PointLayerView) => [...v.groups.values()].flatMap((g) => g.children.filter((c) => c.name === 'point-beam')) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
+    const view = new PointLayerView('sensors');
+    const ground = new Set(['level_ground']);
+    view.sync(layer([sensor('a', 1), sensor('b', 2)]), LEVELS, '#f97316');
+    expect(view.hasBeams(LEVELS)).toBe(false);
+
+    view.sync(layer([sensor('a', 1, { beam: '#dc2626' }), sensor('b', 2)]), LEVELS, '#f97316', new Map([['level_ground', 4]]));
+    const [column, pulse] = beams(view);
+    expect(column!.material.color.getHexString()).toBe('dc2626');
+    expect(column!.scale.y).toBeCloseTo(3.98); // floor to the level's wall height
+    expect(column!.raycast(new THREE.Raycaster(), [])).toBeUndefined();
+    expect(view.hasBeams(ground)).toBe(true);
+    expect(view.hasBeams(new Set(['level_first']))).toBe(false); // not on a shown level
+
+    // The pulse expands and fades over one period.
+    view.updateBeams(0);
+    const start = { scale: pulse!.scale.x, opacity: pulse!.material.opacity };
+    view.updateBeams(1200);
+    expect(pulse!.scale.x).toBeGreaterThan(start.scale);
+    expect(pulse!.material.opacity).toBeLessThan(start.opacity);
+
+    view.setMode('2d');
+    expect(column!.visible).toBe(false); // 2D: ring only
+    expect(pulse!.visible).toBe(true);
+
+    view.sync(layer([sensor('a', 1, { beam: null }), sensor('b', 2)]), LEVELS, '#f97316');
+    expect(beams(view)).toEqual([]);
+    expect(view.hasBeams(LEVELS)).toBe(false);
+
+    view.sync(layer([sensor('b', 2, { beam: 'red' })]), LEVELS, '#f97316');
+    view.sync(layer([]), LEVELS, '#f97316'); // point removed: its beam goes too
+    expect(beams(view)).toEqual([]);
+    expect(view.hasBeams(LEVELS)).toBe(false);
+  });
 });
 
 describe('heatmap grid cache', () => {

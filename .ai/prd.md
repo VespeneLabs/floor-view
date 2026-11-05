@@ -75,7 +75,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-VIEW-02: It shows one level or all levels stacked by elevation; the default is the active level.
 - FR-VIEW-03: Room and marker labels can be shown or hidden. Labels follow the 3D model when the camera moves and never stay behind after a rebuild.
 - FR-VIEW-04: Clicking or hovering a room, wall, marker or data point emits `click` / `hover` events with the picked entity. Hover shows a tooltip.
-- FR-VIEW-05: Rendering happens on demand (only when something changed), to save battery and CPU.
+- FR-VIEW-05: Rendering happens on demand (only when something changed), to save battery and CPU. The one exception is visible alert beams (FR-LAY-08), which animate every frame.
 - FR-VIEW-06: The background color, an underlay image (textured plane) and `screenshot()` are available. `fitView()` frames the plan.
 - FR-VIEW-08: `focus(target)` centers the camera on a data point, room, wall, marker or position (switching level if needed) and highlights it with a ring or outline, e.g. for "Show on floor plan" links.
 - FR-VIEW-07: Colors in any CSS syntax (including `hsl()` with spaces and `oklch()`) are converted correctly for Three.js.
@@ -89,6 +89,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-LAY-05: Point layers can show a persistent text label per point (e.g. a live reading), toggled per layer independently of the plan's room labels, and an outline ring per point (e.g. alert state) separate from the fill color.
 - FR-LAY-06: Replacing a points or heatmap layer with new values updates the scene in place (points matched by ID, heatmap texture refilled with a cached room mask), so values can update every 1–5 s for about 100 points without rebuilding the scene. `updateLayer(id, patch)` merges a partial update.
 - FR-LAY-07: Points have a shape (sphere, box, cylinder, cone, diamond; layer default, per-point override), so kinds of items (e.g. sensors, gas inlets, consumers) can be told apart. Shapes are solids in 3D and distinct flat glyphs in 2D.
+- FR-LAY-08: Points can show an animated alert beam (a light column and pulsing ground ring in 3D, an expanding ring in 2D). The viewer renders continuously only while a beam is visible, and beams are static under `prefers-reduced-motion`.
 
 ### 3.5 Floorview Studio: editor page (Must)
 

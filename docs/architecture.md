@@ -41,7 +41,7 @@ Editor ────────────────────────�
 
 ## Rendering details
 
-- **Viewer:** rendering runs on demand. A `requestAnimationFrame` loop renders only when a dirty flag is set by control changes, resizes, plan or layer updates, or hover. Each room, wall and marker has its own material so it can be highlighted or recolored individually. Pickable meshes carry `userData.pick: PickInfo`.
+- **Viewer:** rendering runs on demand. A `requestAnimationFrame` loop renders only when a dirty flag is set by control changes, resizes, plan or layer updates, or hover. The exception is alert beams: while one is on a shown level (and reduced motion is off), `animateBeams` advances the pulse and marks every frame dirty. Each room, wall and marker has its own material so it can be highlighted or recolored individually. Pickable meshes carry `userData.pick: PickInfo`.
 - **Walls** are boxes stretched by their thickness, so walls meeting at a corner overlap with no gap.
 - **2D mode** uses an orthographic camera placed slightly off-axis, so that screen-up is world −Z (plan −y) and the view matches the editor's orientation.
 - **Editor:** each render redraws the whole SVG: a screen-space grid layer plus a world group under a `translate/scale` transform. Strokes use `vector-effect: non-scaling-stroke`, and handles and text are sized in pixels divided by the scale.

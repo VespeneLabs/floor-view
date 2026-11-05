@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Emitter } from '../core/emitter';
+import { reducedMotionQuery } from '../core/motion';
 import { clonePlan } from '../model/plan';
 import type { FloorPlan, Level, Point, Underlay } from '../model/types';
 import { toThreeColor } from './color';
@@ -81,6 +82,7 @@ export class FloorplanViewer {
   private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
   private readonly colors: SceneColors;
+  private readonly reducedMotion = reducedMotionQuery();
 
   private controls: OrbitControls;
   private plan: FloorPlan | null = null;
@@ -138,6 +140,8 @@ export class FloorplanViewer {
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerleave', this.onPointerLeave);
+
+    this.reducedMotion?.addEventListener('change', this.onReducedMotionChange);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(this.element);
@@ -395,6 +399,7 @@ export class FloorplanViewer {
     if (this.disposed) return;
     this.disposed = true;
     cancelAnimationFrame(this.frame);
+    this.reducedMotion?.removeEventListener('change', this.onReducedMotionChange);
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearHighlight();
@@ -444,9 +449,32 @@ export class FloorplanViewer {
     this.dirty = true;
   }
 
-  private loop = (): void => {
+  private loop = (time: number): void => {
     this.frame = requestAnimationFrame(this.loop);
+    if (this.animateBeams(time)) this.dirty = true;
     if (this.dirty) this.render();
+  };
+
+  /**
+   * Advance the beam pulses. True while a beam is visible and motion is allowed: only then does
+   * the viewer render every frame; otherwise it stays on demand.
+   */
+  private animateBeams(time: number): boolean {
+    if (this.reducedMotion?.matches || this.pointViews.size === 0) return false;
+    let animating = false;
+    let visible: Set<string> | null = null;
+    for (const view of this.pointViews.values()) {
+      visible ??= this.shownLevelIds();
+      if (!view.hasBeams(visible)) continue;
+      view.updateBeams(time);
+      animating = true;
+    }
+    return animating;
+  }
+
+  private onReducedMotionChange = (): void => {
+    if (this.reducedMotion?.matches) for (const view of this.pointViews.values()) view.updateBeams(null);
+    this.requestRender();
   };
 
   private render(): void {
@@ -494,6 +522,11 @@ export class FloorplanViewer {
     return new Set(this.plan.levels.map((l) => l.id));
   }
 
+  /** Levels whose groups are currently shown (the selection, narrowed by the mode). */
+  private shownLevelIds(): Set<string> {
+    return new Set(this.built.filter((b) => b.group.visible).map((b) => b.levelId));
+  }
+
   private applyLevelVisibility(): void {
     const visible = this.visibleLevelIds();
     for (const b of this.built) b.group.visible = visible.has(b.levelId);
@@ -512,7 +545,8 @@ export class FloorplanViewer {
         view.setMode(this.mode);
         this.pointViews.set(layer.id, view);
       }
-      view.sync(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point);
+      const heights = new Map(this.plan.levels.map((l) => [l.id, l.height]));
+      view.sync(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point, heights);
     } else if (layer.type === 'heatmap') {
       this.applyHeatmap(layer);
     }

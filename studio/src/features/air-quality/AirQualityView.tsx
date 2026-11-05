@@ -62,7 +62,7 @@ function roomLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Read
   };
 }
 
-/** Live readings as point labels; sensors in the "poor" band get an alert ring. */
+/** Live readings as point labels; sensors in the "poor" band get an alert ring and beam. */
 function sensorLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Reading>, showValues: boolean, alert: string): PointLayer {
   return {
     id: SENSOR_LAYER,
@@ -73,12 +73,14 @@ function sensorLayer(metric: Metric, sensors: Sensor[], readings: Map<string, Re
     label: (p) => formatValue(metric, readings.get(p.id)![metric.id]),
     points: sensors.map((s) => {
       const value = readings.get(s.id)![metric.id];
+      const poor = bandOf(metric, value).tone === 'poor';
       return {
         id: s.id,
         levelId: s.levelId,
         position: s.position,
         color: colorFor(metric, value),
-        ring: bandOf(metric, value).tone === 'poor' ? alert : null,
+        ring: poor ? alert : null,
+        beam: poor ? alert : null,
       };
     }),
     tooltip: (p) => {
