@@ -29,7 +29,10 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `setShowLabels(boolean)` | Toggle room labels. |
 | `setUnderlay({ url, x, y, width, height, opacity? } \| null, levelId?)` | Show a reference image on a level's floor, under the rooms (default: first level). Kept across `setPlan`. |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
-| `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. |
+| `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. Replacing a points or heatmap layer with the same type updates it in place (see [Live updates](#live-updates)). |
+| `updateLayer(id, patch)` | Merge `patch` into an existing layer and apply it like `setLayer`, e.g. `{ points }` or `{ showLabels: false }`. Returns false if there is no such layer. |
+| `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
+| `clearHighlight()` | Remove the focus highlight. |
 | `fitView()` | Frame the visible levels. |
 | `screenshot()` | PNG data URL of the current view. |
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |
@@ -79,10 +82,42 @@ viewer.setLayer({
   size: 0.2,        // sphere radius (m), per point via `size`
   elevation: 2.2,   // height above the level floor (m)
   tooltip: (p) => `${p.data?.temp} °C`,
+  label: (p) => `${p.data?.temp} °C`, // persistent text above each point (optional)
+  showLabels: true,                   // default true; toggle with updateLayer('sensors', { showLabels: false })
 });
 ```
 
 Points with an unknown `levelId` are skipped. Clicking a point gives `target.kind === 'point'` and `target.layerId`.
+
+- **Labels.** `label(point)` returns plain text shown permanently above the point (null for none), e.g. a live reading. They are independent of the plan's room labels (`setShowLabels`) and styled by `.vl-viewer__point-label` (`--vl-point-label`, `--vl-point-label-bg`).
+- **Ring.** `ring: '#dc2626'` on a point draws an outline ring around its sphere in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
+
+### Live updates
+
+Call `setLayer` (or `updateLayer`) again with the same `id` whenever values change. For points and heatmaps this doesn't rebuild the scene:
+
+- **Points** are matched by `id`: existing spheres, rings and labels are updated in place (position, color, size, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
+- **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
+
+```ts
+setInterval(async () => {
+  const readings = await fetchReadings();
+  viewer.updateLayer<PointLayer>('sensors', { points: readings.map(toPoint) });
+  viewer.updateLayer<HeatmapLayer>('co2', { points: readings.map(toHeatmapPoint) });
+}, 2000);
+```
+
+### Focus
+
+`focus(target, options)` moves the camera to a target (keeping the zoom and, in 3D, the viewing angle), switches to the target's level if it isn't visible (emitting `levelchange`) and highlights it: a ring around points, markers and positions, an outline along rooms and walls, drawn on top of everything in the `colors.highlight` color (default amber). Use it for "Show on floor plan" links.
+
+```ts
+viewer.focus({ kind: 'point', layerId: 'sensors', id: 's1' });                    // follows the point when the layer updates
+viewer.focus({ kind: 'room', id: 'room_lobby' }, { highlight: { color: '#22d3ee', duration: 4000 } });
+viewer.focus({ kind: 'position', levelId: 'level_ground', position: { x: 12, y: 4 } }, { highlight: false });
+```
+
+Targets: `{ kind: 'point', layerId, id }`, `{ kind: 'room' | 'wall' | 'marker', id, levelId? }` and `{ kind: 'position', levelId, position }`. The highlight stays until `clearHighlight()`, the next `focus()` or its `duration` (ms), and survives `setPlan` while the target still exists.
 
 ### Heatmap layer: interpolate values across the floor
 
@@ -105,12 +140,12 @@ viewer.setLayer({
 });
 ```
 
-Values are interpolated with inverse distance weighting and colored by linear interpolation between `colorStops`; values outside the stops are clamped. Each level is rasterized once per `setLayer` call into a texture on the floor, which is cheap enough to update every second for typical floors. Heatmaps are **not pickable**: hovering reaches the rooms underneath, so pair a heatmap with a room layer whose `tooltip` reports the value (`color` may return a neutral color so the heatmap reads cleanly). `interpolateIDW(points, p)` is exported to compute the same value for a single position.
+Values are interpolated with inverse distance weighting and colored by linear interpolation between `colorStops`; values outside the stops are clamped. Each level is rasterized into a texture on the floor; later `setLayer` calls with new values refill it in place (see [Live updates](#live-updates)). Heatmaps are **not pickable**: hovering reaches the rooms underneath, so pair a heatmap with a room layer whose `tooltip` reports the value (`color` may return a neutral color so the heatmap reads cleanly). `interpolateIDW(points, p)` is exported to compute the same value for a single position.
 
 Tooltips are plain text, and `\n` starts a new line. If a tooltip is open when `setLayer` or `removeLayer` runs, its text is refreshed in place. Markers that have a `name` show it as a tooltip by default.
 
 ## Styling
 
-`style.css` defines CSS custom properties on `.vl-viewer`: `--vl-label`, `--vl-label-bg`, `--vl-tooltip-bg`, `--vl-tooltip-fg` and `--vl-font`. Label and tooltip elements use the classes `.vl-viewer__label` and `.vl-viewer__tooltip`.
+`style.css` defines CSS custom properties on `.vl-viewer`: `--vl-label`, `--vl-label-bg`, `--vl-point-label`, `--vl-point-label-bg`, `--vl-tooltip-bg`, `--vl-tooltip-fg` and `--vl-font`. Label and tooltip elements use the classes `.vl-viewer__label`, `.vl-viewer__point-label` and `.vl-viewer__tooltip`.
 
-Colors inside the 3D scene (background, walls, defaults) are WebGL, not CSS. Set them with the `background`/`colors` options and `setBackground()`. Colors are converted with `toThreeColor`, which accepts any CSS color.
+Colors inside the 3D scene (background, walls, defaults, the focus highlight) are WebGL, not CSS. Set them with the `background`/`colors` options and `setBackground()`. Colors are converted with `toThreeColor`, which accepts any CSS color.

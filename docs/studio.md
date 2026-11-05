@@ -51,8 +51,8 @@ Pages are chosen by URL hash (`src/lib/route.ts`, no router package). The editor
 - **Editor** (`#/`): the 2D editor, a live 3D viewer with demo layers, and the property inspector.
 - **Air quality** (`#/air-quality`, `features/air-quality/`): monitoring for the current plan, with one simulated sensor per room.
   - **Metrics:** CO₂, temperature, humidity and PM2.5. Each has color stops and labelled bands (Good/Moderate/Poor, or Cold/Comfortable/Warm…) in `metrics.ts`.
-  - **Map:** a heatmap layer plus neutral room floors with value tooltips, and sensor spheres whose tooltips show all four metrics.
-  - **Controls:** a time-of-day slider with day playback. The sidebar has a legend, a good/moderate/poor summary and the rooms sorted worst-first.
+  - **Map:** a heatmap layer plus neutral room floors with value tooltips, and sensor spheres whose tooltips show all four metrics. Each sensor shows its current value as a point label (**Values on plan** toggles them), and sensors in the worst band get an alert ring. Layers are re-set every tick and update in place.
+  - **Controls:** a time-of-day slider with day playback. The sidebar has a legend, a good/moderate/poor summary and the rooms sorted worst-first; clicking a room focuses its sensor on the plan (`viewer.focus`, highlighted for 4 s).
   - **Data:** `simulation.ts` models an office day (people drive CO₂, humidity and temperature; the kitchen spikes PM2.5 at lunch; the server room runs hot). It is deterministic, so scrubbing the timeline is reproducible. Replace it with real sensor data behind the same shapes.
 
 ### AI import (`#/import`, `features/import/`)

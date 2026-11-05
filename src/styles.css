@@ -19,6 +19,8 @@
   --vl-muted: #64748b;
   --vl-tooltip-bg: #0f172a;
   --vl-tooltip-fg: #f8fafc;
+  --vl-point-label: var(--vl-tooltip-fg);
+  --vl-point-label-bg: rgb(15 23 42 / 0.82);
 
   position: relative;
   width: 100%;
@@ -46,6 +48,20 @@
   color: var(--vl-label);
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Data point labels (PointLayer.label): compact, above the point. */
+.vl-viewer__point-label {
+  margin-bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--vl-point-label-bg);
+  color: var(--vl-point-label);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
   white-space: nowrap;
 }
 

@@ -78,13 +78,21 @@ export interface HeatmapRaster {
 }
 
 /**
- * Rasterize a heatmap for one level. Cells outside every room (when `clipToRooms`) or farther
- * than `maxDistance` from all points are transparent. Returns null when the level has no points.
+ * The cell grid of a heatmap on one level: bounds, cell size and (when clipping to rooms) which
+ * cells lie inside a room. Depends on the level geometry and the layer's `resolution`/
+ * `clipToRooms`, not on the values, so it can be cached while only the values change.
  */
-export function rasterizeHeatmap(level: Level, layer: HeatmapLayer): HeatmapRaster | null {
-  const points = layer.points.filter((p) => p.levelId === level.id && Number.isFinite(p.value));
-  if (points.length === 0) return null;
+export interface HeatmapGrid {
+  width: number;
+  height: number;
+  minX: number;
+  minY: number;
+  cellSize: number;
+  /** 1 = inside a room (or no clipping). */
+  mask: Uint8Array;
+}
 
+export function heatmapGrid(level: Level, layer: HeatmapLayer, points: readonly HeatmapPoint[]): HeatmapGrid | null {
   const clip = layer.clipToRooms ?? true;
   const outline = clip ? level.rooms.flatMap((r) => r.points) : [...level.walls.flatMap((w) => [w.start, w.end]), ...points.map((p) => p.position)];
   if (outline.length === 0) return null;
@@ -97,26 +105,62 @@ export function rasterizeHeatmap(level: Level, layer: HeatmapLayer): HeatmapRast
   cellSize = Math.max(cellSize, (maxX - minX) / MAX_CELLS, (maxY - minY) / MAX_CELLS, 1e-3);
   const width = Math.max(1, Math.ceil((maxX - minX) / cellSize));
   const height = Math.max(1, Math.ceil((maxY - minY) / cellSize));
+  const mask = new Uint8Array(width * height).fill(1);
+  if (clip) {
+    for (let row = 0; row < height; row++) {
+      for (let col = 0; col < width; col++) {
+        const p = { x: minX + (col + 0.5) * cellSize, y: minY + (row + 0.5) * cellSize };
+        if (!level.rooms.some((r) => pointInPolygon(p, r.points))) mask[row * width + col] = 0;
+      }
+    }
+  }
+  return { width, height, minX, minY, cellSize, mask };
+}
 
+/** Writes the colors for `points` into `data` (RGBA, `grid.width × grid.height`), reusing it when given. */
+export function fillHeatmap(
+  grid: HeatmapGrid,
+  points: readonly HeatmapPoint[],
+  layer: HeatmapLayer,
+  data: Uint8Array<ArrayBuffer> = new Uint8Array(grid.width * grid.height * 4),
+): Uint8Array<ArrayBuffer> {
   const stops = resolveStops(layer.colorStops);
   const alpha = Math.round((layer.opacity ?? 0.8) * 255);
-  const data = new Uint8Array(width * height * 4);
-
-  for (let row = 0; row < height; row++) {
-    for (let col = 0; col < width; col++) {
-      const p = { x: minX + (col + 0.5) * cellSize, y: minY + (row + 0.5) * cellSize };
-      if (clip && !level.rooms.some((r) => pointInPolygon(p, r.points))) continue;
+  data.fill(0);
+  for (let row = 0; row < grid.height; row++) {
+    for (let col = 0; col < grid.width; col++) {
+      const cell = row * grid.width + col;
+      if (!grid.mask[cell]) continue;
+      const p = { x: grid.minX + (col + 0.5) * grid.cellSize, y: grid.minY + (row + 0.5) * grid.cellSize };
       const value = interpolateIDW(points, p, layer.power, layer.maxDistance);
       if (value === null) continue;
       const [r, g, b] = sampleStops(stops, value);
-      const i = (row * width + col) * 4;
+      const i = cell * 4;
       data[i] = r;
       data[i + 1] = g;
       data[i + 2] = b;
       data[i + 3] = alpha;
     }
   }
-  return { data, width, height, minX, minY, cellSize };
+  return data;
+}
+
+/** The finite points of `layer` on `levelId`. */
+export function heatmapPointsOn(layer: HeatmapLayer, levelId: string): HeatmapPoint[] {
+  return layer.points.filter((p) => p.levelId === levelId && Number.isFinite(p.value));
+}
+
+/**
+ * Rasterize a heatmap for one level. Cells outside every room (when `clipToRooms`) or farther
+ * than `maxDistance` from all points are transparent. Returns null when the level has no points.
+ */
+export function rasterizeHeatmap(level: Level, layer: HeatmapLayer): HeatmapRaster | null {
+  const points = heatmapPointsOn(layer, level.id);
+  if (points.length === 0) return null;
+  const grid = heatmapGrid(level, layer, points);
+  if (!grid) return null;
+  const { width, height, minX, minY, cellSize } = grid;
+  return { data: fillHeatmap(grid, points, layer), width, height, minX, minY, cellSize };
 }
 
 /** A flat textured plane for the raster, in level-local coordinates. Not pickable. */
