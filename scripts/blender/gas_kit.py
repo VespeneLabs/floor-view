@@ -1383,6 +1383,139 @@ def pipeline_entry():
     return m
 
 
+# ------------------------------------------------------------------------- boiler room
+
+def wall_boiler():
+    """Wall-hung condensing gas boiler with display, connections underneath and a flue on top."""
+    m = Model()
+    m.mounted = True
+    z0, h = 1.35, 0.72
+    m.box(0.44, 0.34, h, 0, -0.17, z0, 'body', bevel=0.02)
+    m.box(0.22, 0.012, 0.26, 0.04, -0.344, z0 + 0.06, 'panel', bevel=0.004)      # control panel
+    m.box(0.13, 0.012, 0.09, 0.04, -0.35, z0 + 0.2, 'dark', bevel=0.003)          # display
+    for i in range(3):
+        m.box(0.018, 0.012, 0.018, -0.02 + i * 0.04, -0.35, z0 + 0.1, 'dark', bevel=0)
+    m.box(0.4, 0.05, 0.03, 0.0, -0.06, z0 - 0.03, 'metal', bevel=0.003)          # mounting rail
+    for i, x in enumerate((-0.15, -0.075, 0.0, 0.075, 0.15)):                    # gas and water connections
+        m.vcyl(0.011, 0.3, x, -0.16, z0 - 0.3, 'accent', seg=10)
+        m.box(0.035, 0.035, 0.035, x, -0.16, z0 - 0.2, 'metal', bevel=0.003)
+        m.box(0.012, 0.05, 0.01, x, -0.19, z0 - 0.17, 'panel' if i == 2 else 'dark', bevel=0)
+    m.vcyl(0.065, 0.06, 0, -0.17, z0 + h, 'panel', seg=24)                       # flue adaptor
+    m.vcyl(0.05, 0.3, 0, -0.17, z0 + h + 0.06, 'panel', seg=24)                  # flue
+    return m
+
+
+def expansion_vessel(r=0.16, h=0.48):
+    """Wall-hung membrane expansion vessel on a bracket; the vessel is the accent."""
+    m = Model()
+    m.mounted = True
+    z0, y = 1.15, -(r + 0.04)
+    vessel(m, 0, y, z0, r, h, 'accent', head=0.35)
+    m.vcyl(r + 0.006, 0.02, 0, y, z0 + h * 0.55, 'panel', seg=32)               # seam band
+    m.box(0.08, r + 0.06, 0.03, 0, y / 2, z0 + h - 0.02, 'metal', bevel=0.004)   # wall bracket
+    m.box(0.12, 0.01, 0.12, 0, -0.005, z0 + h - 0.1, 'metal', bevel=0.003)
+    m.vcyl(0.012, 0.18, 0, y, z0 - 0.17, 'metal', seg=10)                        # connection
+    m.sphere(0.018, (0, y, z0 - 0.17), 'metal')
+    m.cyl(0.012, abs(y) - 0.01, (0, y / 2, z0 - 0.17), 'metal', axis='Y', seg=10)
+    return m
+
+
+def expansion_vessel_large():
+    return expansion_vessel(r=0.2, h=0.62)
+
+
+def hydraulic_separator():
+    """Insulated hydraulic separator (low-loss header) with thermometers and a circulation pump."""
+    m = Model()
+    m.mounted = True
+    y, z0, h, r = -0.12, 0.95, 0.72, 0.085
+    vessel(m, 0, y, z0, r, h, 'dark', head=0.4)
+    m.vcyl(0.012, 0.05, 0, y, z0 + h, 'metal', seg=10)                           # air vent
+    m.vcyl(0.02, 0.03, 0, y, z0 + h + 0.05, 'metal', seg=12)
+    m.vcyl(0.012, 0.06, 0, y, z0 - 0.06, 'metal', seg=10)                        # drain
+    for z in (z0 + 0.15, z0 + h - 0.15):
+        for side in (-1, 1):                                                     # boiler and heating circuits
+            m.cyl(0.02, 0.22, (side * (r + 0.11), y, z), 'accent', axis='X', seg=12)
+            m.cyl(0.03, 0.03, (side * (r + 0.015), y, z), 'metal', axis='X', seg=6)
+    for z in (z0 + 0.2, z0 + h - 0.22):                                          # thermometers
+        m.cyl(0.045, 0.02, (0, y - r - 0.005, z), 'metal', axis='Y', seg=24)
+        m.cyl(0.04, 0.004, (0, y - r - 0.016, z), 'body', axis='Y', seg=24)
+    for z in (z0 + 0.12, z0 + h - 0.12):                                         # wall clamps
+        m.box(0.05, 0.12, 0.03, 0, y / 2 + 0.01, z, 'metal', bevel=0.003)
+    # circulation pump on the upper left circuit
+    px = -(r + 0.2)
+    m.cyl(0.04, 0.1, (px, y, z0 + h - 0.15), 'panel', axis='X', seg=20)
+    m.cyl(0.05, 0.07, (px, y - 0.06, z0 + h - 0.15), 'dark', axis='Y', seg=24)
+    m.cyl(0.03, 0.006, (px, y - 0.097, z0 + h - 0.15), 'panel', axis='Y', seg=16)
+    return m
+
+
+def hot_water_cylinder():
+    """Floor-standing indirect hot water cylinder (~150 l) with a lid and top connections."""
+    m = Model()
+    r, h = 0.3, 1.0
+    m.vcyl(r * 0.95, 0.03, 0, 0, 0, 'dark', seg=40)                              # base
+    m.vcyl(r, h, 0, 0, 0.03, 'accent', seg=40)                                   # insulated shell
+    m.vcyl(r + 0.01, 0.06, 0, 0, h + 0.03, 'dark', seg=40)                       # lid
+    top = h + 0.09
+    m.vcyl(0.06, 0.06, 0.0, 0.05, top, 'dark', seg=20)                           # inspection cap
+    for x, y, cap in ((-0.17, -0.12, 'accent'), (0.15, -0.16, 'panel'), (-0.16, 0.14, 'metal'), (0.12, 0.15, 'metal')):
+        m.vcyl(0.02, 0.08, x, y, top, 'metal', seg=10)                           # flow / return / hot / cold
+        m.vcyl(0.026, 0.012, x, y, top, cap, seg=12)
+        m.sphere(0.024, (x, y, top + 0.08), 'metal')
+        m.cyl(0.018, r - y + 0.05, (x, (y + r + 0.05) / 2, top + 0.08), 'accent', axis='Y', seg=10)
+    return m
+
+
+def ufh_manifold_cabinet():
+    """Floor-standing underfloor heating manifold cabinet: flow and return bars, circuits, actuators."""
+    m = Model()
+    w, d, h, n = 1.1, 0.16, 0.85, 12
+    m.box(w, 0.015, h, 0, d / 2 - 0.0075, 0, 'panel', bevel=0.002)               # back
+    for x in (-w / 2 + 0.01, w / 2 - 0.01):
+        m.box(0.02, d, h, x, 0, 0, 'body', bevel=0.004)                         # sides
+    m.box(w, d, 0.02, 0, 0, h - 0.02, 'body', bevel=0.004)                       # top
+    m.box(w, d, 0.12, 0, 0, 0, 'body', bevel=0.004)                              # kick plate
+    m.box(w - 0.04, d - 0.02, 0.01, 0, 0, 0.7, 'metal', bevel=0)                 # shelf
+    m.box(0.3, 0.07, 0.05, -0.05, 0.0, 0.71, 'dark', bevel=0.004)                # zone controller
+    m.box(0.06, 0.012, 0.08, -0.32, -0.03, 0.71, 'dark', bevel=0.003)            # room thermostat
+    zf, zr, bar = 0.58, 0.33, w - 0.16
+    for z in (zf, zr):
+        m.cyl(0.024, bar, (0, 0.0, z), 'metal', axis='X', seg=16)                # brass bars
+    pitch = (bar - 0.08) / (n - 1)
+    for i in range(n):
+        x = -bar / 2 + 0.04 + i * pitch
+        m.vcyl(0.01, 0.05, x, 0.0, zf + 0.02, 'panel', seg=8)                    # flow meters
+        m.vcyl(0.014, zf - 0.12 - 0.02, x, 0.025, 0.12, 'accent', seg=10)        # flow pipe (behind)
+        m.vcyl(0.017, 0.045, x, 0.0, zr + 0.02, 'body', seg=12)                  # actuators
+        m.vcyl(0.014, zr - 0.12 - 0.02, x, -0.03, 0.12, 'accent', seg=10)        # return pipe
+    return m
+
+
+def water_filter_station():
+    """Cold water inlet: ball valves, twin cartridge filters, pressure reducer with gauge, water meter."""
+    m = Model()
+    m.mounted = True
+    z, y = 0.95, -0.09
+    m.cyl(0.016, 1.0, (0.0, y, z), 'accent', axis='X', seg=12)                   # main line
+    for x in (-0.46, 0.4):
+        valve(m, (x, y, z))
+    for x in (-0.3, -0.12):                                                      # filter housings
+        m.box(0.14, 0.1, 0.07, x, y, z - 0.035, 'panel', bevel=0.008)
+        m.box(0.12, 0.02, 0.1, x, -0.01, z - 0.05, 'metal', bevel=0.003)          # wall bracket
+        m.vcyl(0.065, 0.3, x, y, z - 0.37, 'accent', seg=24)
+        m.vcyl(0.068, 0.03, x, y, z - 0.08, 'accent', seg=24)
+    m.box(0.07, 0.07, 0.08, 0.06, y, z - 0.04, 'metal', bevel=0.006)              # pressure reducer
+    m.vcyl(0.02, 0.05, 0.06, y, z + 0.04, 'metal', seg=10)
+    m.vcyl(0.008, 0.06, 0.13, y, z, 'metal', seg=8)                               # gauge
+    m.cyl(0.035, 0.02, (0.13, y - 0.01, z + 0.09), 'metal', axis='Y', seg=20)
+    m.cyl(0.03, 0.004, (0.13, y - 0.022, z + 0.09), 'body', axis='Y', seg=20)
+    m.box(0.09, 0.07, 0.06, 0.25, y, z - 0.03, 'metal', bevel=0.006)              # water meter
+    m.vcyl(0.035, 0.03, 0.25, y, z + 0.03, 'panel', seg=20)
+    m.box(0.08, 0.02, 0.08, 0.25, -0.01, z - 0.04, 'metal', bevel=0.003)          # wall bracket
+    return m
+
+
 # ------------------------------------------------------------------- wall-mounted regulators
 
 MOUNT_Z = 1.3  # center height of wall-mounted regulators
@@ -1564,6 +1697,20 @@ MODELS = [
      'Portable cryogenic liquid cylinder (about 0.58 m diameter, 1.6 m tall, 180–230 l) for liquid nitrogen, oxygen, argon or CO2: an insulated vessel on a castor base with a top handling ring and a valve and contents-gauge cluster. Drawn as a circle, often in a row in a gas store or next to a lab or process tool. Synonyms: dewar, liquid cylinder, LC, cryo cylinder, portable cryogenic container.'),
     ('pipeline-entry', 'Pipeline entry', pipeline_entry,
      'Gas service entry where a supply line enters the site from a utility main or external pipeline (about 0.6 × 0.4 m, 1.3 m tall): a pipe rising from the ground with a shut-off valve, a pressure regulator with gauge and a meter box, continuing toward the building. Drawn as a small symbol at a site boundary or outer wall, often labelled with the gas. Synonyms: gas service entry, pipeline inlet, supply station, pressure reduction station, PRS, meter set.'),
+    ('wall-boiler', 'Wall-hung gas boiler', wall_boiler,
+     'Wall-hung gas condensing boiler (0.44 × 0.34 m, 0.72 m tall, hung at about 1.35–2.1 m) with a control panel and display, gas and water connections underneath and a flue on top; heats a building or flat. Drawn as a small rectangle on a wall in a boiler or utility room. Synonyms: combi boiler, gas boiler, condensing boiler, heater.'),
+    ('expansion-vessel', 'Expansion vessel', expansion_vessel,
+     'Wall-hung membrane expansion vessel (about 18 l, 0.32 m diameter) on a bracket, connected from below; absorbs the expansion of heating water. Drawn as a small circle on a wall next to a boiler. Synonyms: expansion tank, pressure vessel, membrane vessel.'),
+    ('expansion-vessel-large', 'Expansion vessel (large)', expansion_vessel_large,
+     'Larger wall-hung expansion vessel (about 35 l, 0.4 m diameter), e.g. for a hot water or solar circuit. Synonyms: expansion tank, potable water expansion vessel, accumulator.'),
+    ('hydraulic-separator', 'Hydraulic separator', hydraulic_separator,
+     'Insulated hydraulic separator column (low-loss header) on a wall at about 0.95–1.7 m, with boiler and heating circuit connections on both sides, two thermometers and a circulation pump. Synonyms: low-loss header, hydraulic decoupler, sprzęgło hydrauliczne, buffer column.'),
+    ('hot-water-cylinder', 'Hot water cylinder', hot_water_cylinder,
+     'Floor-standing indirect hot water cylinder (about 150 l, 0.6 m diameter, 1.1 m tall) with an insulated shell, a lid and flow, return, hot and cold connections on top; stores domestic hot water heated by a boiler. Drawn as a circle, usually next to the boiler. Synonyms: DHW cylinder, calorifier, water heater, storage tank.'),
+    ('ufh-manifold-cabinet', 'Underfloor heating manifold', ufh_manifold_cabinet,
+     'Underfloor heating manifold cabinet (1.1 × 0.16 m, 0.85 m tall) with flow and return bars, twelve circuits with flow meters and actuators, and a zone controller on the shelf. Drawn as a thin rectangle against a wall, often in a corridor or boiler room. Synonyms: UFH manifold, distributor, heating manifold box.'),
+    ('water-filter-station', 'Water filter station', water_filter_station,
+     'Cold water inlet on a wall: ball valves, twin cartridge filter housings, a pressure reducer with gauge and a water meter on one line at about 0.95 m (1 m wide). Drawn as a short line with symbols where the water main enters. Synonyms: water inlet, filter set, water meter set, mains water station.'),
     ('cylinder-regulator', 'Cylinder regulator', cylinder_regulator,
      'Wall-mounted dual-gauge gas pressure regulator (about 0.45 m wide) on a bracket at 1.3 m, with an inlet nut, an outlet valve and a hose barb; reduces cylinder pressure for a line or instrument. Drawn as a small symbol on a wall, often next to a cylinder. Synonyms: pressure regulator, pressure reducer, cylinder regulator.'),
     ('regulator-panel-4', 'Regulator panel (4)', regulator_panel_4,
