@@ -1,6 +1,6 @@
 {
   "name": "@vespenelabs/floorview",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Floorview: a floor plan viewer (2D/3D) and editor for the web, by VespeneLabs.",
   "license": "UNLICENSED",
   "repository": {
