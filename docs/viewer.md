@@ -40,7 +40,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
 | `clearHighlight()` | Remove the focus highlight. |
 | `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the plan position is in the middle of the view without changing the zoom (2D) or the camera's distance and angle (3D: the orbit target moves to the position on the level's floor). Switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps; camera input cancels it. Returns false for an unknown level. |
-| `fitView()` | Frame the visible levels. |
+| `fitView()` | Frame the visible levels. The mouse wheel zooms toward the pointer (down to 30 cm from a surface in 3D). |
 | `screenshot()` | PNG data URL of the current view. |
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |
 | `dispose()` | Stop rendering, free GPU resources and remove the DOM. |

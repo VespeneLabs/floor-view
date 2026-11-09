@@ -596,6 +596,11 @@ export class FloorplanViewer {
     controls.enableRotate = this.mode === '3d';
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
     controls.screenSpacePanning = true;
+    // Zoom toward the pointer, so any spot (e.g. a small model) can be zoomed into, not only the
+    // orbit target; the minimum distance keeps the camera from passing through models.
+    controls.zoomToCursor = true;
+    controls.minDistance = 0.3;
+    controls.maxZoom = 400;
     controls.addEventListener('change', () => this.requestRender());
     // The user grabbed the camera: stop a running centerOn.
     controls.addEventListener('start', () => (this.pan = null));
