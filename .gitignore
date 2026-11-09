@@ -5,3 +5,4 @@ dist-studio
 .DS_Store
 *.local
 dist-demo
+__pycache__/

@@ -70,7 +70,7 @@ Models normally sit with their lowest point on the floor, whatever the file's or
 
 ## The Gas kit (`@vespenelabs/floorview/gas`)
 
-56 industrial gas and cleanroom models made for Floorview (including four wall-mounted pressure regulators: `cylinder-regulator`, `point-of-use-regulator`, `regulator-panel-2` and `regulator-panel-4`, authored at 1.3 m and marked `mounted`), in the same clean "white model with accents" style:
+58 industrial gas and cleanroom models made for Floorview (including four wall-mounted pressure regulators: `cylinder-regulator`, `point-of-use-regulator`, `regulator-panel-2` and `regulator-panel-4`, authored at 1.3 m and marked `mounted`), in the same clean "white model with accents" style:
 
 | Group | Models |
 | --- | --- |
