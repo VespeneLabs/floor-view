@@ -10,7 +10,7 @@ import { toThreeColor } from './color';
 import { buildHighlight, resolveFocus, type FocusOptions, type FocusTarget } from './focus';
 import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type HeatmapGrid } from './heatmap';
 import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
-import { ModelCache, type ModelStyle } from './models';
+import { applyModelStyle, ModelCache, type ModelStyle } from './models';
 import { PointLayerView } from './pointLayer';
 import {
   buildPlan,
@@ -131,6 +131,8 @@ export class FloorplanViewer {
     pointerId: number;
   } | null = null;
   private ghost: { spec: Ghost; mesh: THREE.Mesh } | null = null;
+  /** Host-managed state colors by marker id (`setMarkerTints`), kept across `setPlan`. */
+  private tints = new Map<string, string>();
 
   private controls: OrbitControls;
   private plan: FloorPlan | null = null;
@@ -253,6 +255,7 @@ export class FloorplanViewer {
     this.applyLevelVisibility();
     this.updateHighlight();
     this.applyModelVisibility();
+    this.applyTints();
     this.loadModels();
     if (fit ?? first) this.fitView();
     this.requestRender();
@@ -302,6 +305,36 @@ export class FloorplanViewer {
     if (!lowest) return null;
     const p = this.floorPoint(lowest.group.position.y);
     return p ? { levelId: lowest.levelId, position: { x: p.x, y: p.z } } : null;
+  }
+
+  /**
+   * Tint markers with a state color (e.g. red for an alarm, amber for low stock), by marker id;
+   * null removes a tint. A tint colors a marker's whole 3D model, keeping its clay shading (or the
+   * glyph of a marker without a model) and wins over the marker's own accent `color`. Tints are
+   * display state, not plan data: they update in place without rebuilding the scene and are kept
+   * across `setPlan` (applied again when a marker with that id exists).
+   * `replace: true` clears every tint not in `tints` first.
+   */
+  setMarkerTints(tints: Record<string, string | null>, { replace = false }: { replace?: boolean } = {}): void {
+    const changed = new Set(replace ? this.tints.keys() : []);
+    if (replace) this.tints.clear();
+    for (const [id, color] of Object.entries(tints)) {
+      if (color) this.tints.set(id, color);
+      else this.tints.delete(id);
+      changed.add(id);
+    }
+    for (const id of changed) this.applyTint(id);
+    this.requestRender();
+  }
+
+  /** Tint one marker (see `setMarkerTints`), or remove its tint with null. */
+  setMarkerTint(id: string, color: string | null): void {
+    this.setMarkerTints({ [id]: color });
+  }
+
+  /** The current marker tints by id. */
+  getMarkerTints(): Record<string, string> {
+    return Object.fromEntries(this.tints);
   }
 
   /** Show a translucent placement box (e.g. while an asset is dragged over the viewer), or remove it with null. */
@@ -596,6 +629,11 @@ export class FloorplanViewer {
     controls.enableRotate = this.mode === '3d';
     controls.maxPolarAngle = Math.PI / 2 - 0.05;
     controls.screenSpacePanning = true;
+    // Zoom toward the pointer, so any spot (e.g. a small model) can be zoomed into, not only the
+    // orbit target; the minimum distance keeps the camera from passing through models.
+    controls.zoomToCursor = true;
+    controls.minDistance = 0.3;
+    controls.maxZoom = 400;
     controls.addEventListener('change', () => this.requestRender());
     // The user grabbed the camera: stop a running centerOn.
     controls.addEventListener('start', () => (this.pan = null));
@@ -702,7 +740,28 @@ export class FloorplanViewer {
   }
 
   private modelStyle(slot: ModelSlot): ModelStyle {
-    return { clay: toThreeColor(this.colors.model), accent: slot.color ? toThreeColor(slot.color) : null };
+    const tint = this.tints.get(slot.markerId);
+    const accent = tint ?? slot.color;
+    return { clay: toThreeColor(this.colors.model), accent: accent ? toThreeColor(accent) : null, whole: tint !== undefined };
+  }
+
+  /** Apply the current tint (or none) of one marker to its scene objects, in place. */
+  private applyTint(id: string): void {
+    const tint = this.tints.get(id);
+    for (const b of this.built) {
+      const slot = b.models.find((m) => m.markerId === id);
+      if (slot) {
+        if (slot.placeholder) recolor(slot.placeholder, tint);
+        else applyModelStyle(slot.slot, this.modelStyle(slot));
+        continue;
+      }
+      const glyph = b.markers.get(id);
+      if (glyph && (glyph as THREE.Mesh).isMesh) recolor(glyph as THREE.Mesh, tint);
+    }
+  }
+
+  private applyTints(): void {
+    for (const id of this.tints.keys()) this.applyTint(id);
   }
 
   private applyModelVisibility(): void {
@@ -1096,4 +1155,10 @@ export class FloorplanViewer {
       this.events.emit('hover', { target: null, point: null, originalEvent: event });
     }
   };
+}
+
+/** Set a marker glyph or placeholder to `tint`, or back to its base color. */
+function recolor(mesh: THREE.Mesh, tint: string | undefined): void {
+  const material = mesh.material as THREE.MeshStandardMaterial;
+  toThreeColor(tint ?? (mesh.userData.baseColor as string), material.color);
 }

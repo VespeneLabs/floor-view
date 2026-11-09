@@ -32,6 +32,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `setMovableMarkers(boolean)` | Let the user drag markers and their 3D models across the floor (also the `movableMarkers` option; snaps to `moveGrid`, default 0.25 m, Alt bypasses). The viewer moves the marker live and emits `markermove` on drop; update your plan (e.g. `editor.updateEntity`) and `setPlan`. A press without movement is a normal `click`. |
 | `clientToPlan(clientX, clientY)` | The `{ levelId, position }` under viewport coordinates (room floor under the pointer, else the lowest shown level's floor plane), e.g. for a `drop` event. Null outside the viewer. |
 | `setGhost({ levelId, position, size, rotation?, color? } \| null)` | A translucent placement box, e.g. where a dragged asset would land. |
+| `setMarkerTints({ [markerId]: color \| null }, { replace? })` / `setMarkerTint(id, color \| null)` / `getMarkerTints()` | Host-managed state colors, e.g. red for an alarm or amber for low stock. A tint colors a marker's whole 3D model (all parts, clay shading kept) or its glyph, and wins over `marker.color`. Not plan data: updates in place without a rebuild, kept across `setPlan`. `replace: true` clears tints not listed. |
 | `setShowModels(boolean)` / `getShowModels()` | Show or hide markers' 3D models (also the `showModels` option). Models are always drawn decolorized; `marker.color` is their accent. |
 | `setAssets(assets)` / `getAssets()` | The 3D models markers can show (`marker.model`). Rebuilds the scene; each GLB loads once and is shared. See [3D model assets](assets.md). |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
@@ -40,7 +41,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
 | `clearHighlight()` | Remove the focus highlight. |
 | `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the plan position is in the middle of the view without changing the zoom (2D) or the camera's distance and angle (3D: the orbit target moves to the position on the level's floor). Switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps; camera input cancels it. Returns false for an unknown level. |
-| `fitView()` | Frame the visible levels. |
+| `fitView()` | Frame the visible levels. The mouse wheel zooms toward the pointer (down to 30 cm from a surface in 3D). |
 | `screenshot()` | PNG data URL of the current view. |
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |
 | `dispose()` | Stop rendering, free GPU resources and remove the DOM. |

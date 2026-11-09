@@ -130,7 +130,7 @@ const OVERLAY_PX = 7;
 /** Rotation step (degrees) of the Q/E keys; Shift: 90°. */
 const ROTATE_STEP = 15;
 const MIN_SCALE = 4;
-const MAX_SCALE = 400;
+const MAX_SCALE = 1500;
 
 
 /**

@@ -57,6 +57,7 @@ Models normally sit with their lowest point on the floor, whatever the file's or
 - Each GLB loads **once per URL** (`GLTFLoader`, bundled like the other three add-ons) and is shared by every marker that uses it. Until it loads, or if it fails (logged once with `[floorview]`), a translucent box of the asset's size stands in for it.
 - Unlit glTF materials (`KHR_materials_unlit`, as in some Kenney kits) are converted to lit `MeshStandardMaterial`, so models shade like the walls.
 - **Colors:** models are always decolorized: a matte neutral (`colors.model`, default `#eef1f5`) shaded by the model's original brightness, for a clean "white model" look whatever the source kit. A marker's `color` is the accent: models with `accent` materials (the Gas kit) color only those parts (pipes, cylinders, ducts…), other models are tinted whole, with the same shading. Without a color a model is plain white.
+- **State tints:** `viewer.setMarkerTints({ [markerId]: '#ef4444' })` colors a marker's whole model (every part, shading kept) with a host-managed state color, e.g. from sensor alarms or stock levels, without changing the plan or rebuilding the scene; `null` removes it. A tint takes precedence over the accent `color`.
 - **Visibility:** `showModels` option / `setShowModels(false)` hides all models (and they can't be picked), e.g. to look at the bare plan.
 - Picking, hover, tooltips (the marker name) and `focus({ kind: 'marker', id })` work as for any marker. Hover lights up the whole model.
 - Large scenes: each instance is a clone with its own materials. Hundreds of models are fine; for thousands, instancing would be the next step.
@@ -70,7 +71,7 @@ Models normally sit with their lowest point on the floor, whatever the file's or
 
 ## The Gas kit (`@vespenelabs/floorview/gas`)
 
-58 industrial gas and cleanroom models made for Floorview (including four wall-mounted pressure regulators: `cylinder-regulator`, `point-of-use-regulator`, `regulator-panel-2` and `regulator-panel-4`, authored at 1.3 m and marked `mounted`), in the same clean "white model with accents" style:
+65 industrial gas and cleanroom models made for Floorview (including four wall-mounted pressure regulators: `cylinder-regulator`, `point-of-use-regulator`, `regulator-panel-2` and `regulator-panel-4`, authored at 1.3 m and marked `mounted`), in the same clean "white model with accents" style:
 
 | Group | Models |
 | --- | --- |

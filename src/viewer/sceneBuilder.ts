@@ -141,6 +141,7 @@ export function buildLevel(
         new THREE.MeshStandardMaterial({ color: toThreeColor(marker.color ?? colors.marker), transparent: true, opacity: 0.35 }),
       );
       placeholder.position.y = Math.max(height * s, 0.05) / 2;
+      placeholder.userData.baseColor = marker.color ?? colors.marker;
       tag(placeholder, pick);
       slot.add(placeholder);
       group.add(slot);
@@ -151,6 +152,7 @@ export function buildLevel(
     const material = new THREE.MeshStandardMaterial({ color: toThreeColor(marker.color ?? colors.marker), roughness: 0.4 });
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 20, 14), material);
     mesh.position.set(marker.position.x, 0.25 + (marker.elevation ?? 0), marker.position.y);
+    mesh.userData.baseColor = marker.color ?? colors.marker;
     tag(mesh, { kind: 'marker', id: marker.id, levelId: level.id });
     group.add(mesh);
     built.markers.set(marker.id, mesh);
