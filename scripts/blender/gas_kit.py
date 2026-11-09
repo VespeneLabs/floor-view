@@ -1301,6 +1301,86 @@ def drum_spill_pallet():
 
 
 # id, display name, builder, description (for search and AI assistants)
+# ----------------------------------------------------------------- dewar and pipeline entry
+
+def dewar():
+    """Portable cryogenic liquid cylinder (~200 l): accent shell, handling ring, valve cluster, castors."""
+    m = Model()
+    r, z0, shell = 0.29, 0.1, 1.17
+    m.vcyl(r * 0.92, 0.035, 0, 0, 0.065, 'dark', seg=32)                      # castor base ring
+    for a in range(4):
+        ang = a * math.pi / 2 + math.pi / 4
+        x, y = 0.2 * math.cos(ang), 0.2 * math.sin(ang)
+        m.box(0.05, 0.05, 0.04, x, y, 0.035, 'metal', bevel=0.005)
+        m.cyl(0.035, 0.03, (x, y, 0.035), 'dark', axis='X', seg=12)          # castor wheels
+    m.vcyl(r, 0.05, 0, 0, z0, 'accent', r2=r * 0.97, seg=40)                  # lower knuckle
+    m.vcyl(r, shell, 0, 0, z0 + 0.05, 'accent', seg=40)                       # vessel shell
+    for z in (0.45, 0.95):
+        m.vcyl(r + 0.008, 0.03, 0, 0, z, 'metal', seg=40)                     # rolling bands
+    m.vcyl(r, 0.1, 0, 0, z0 + 0.05 + shell, 'accent', r2=r * 0.55, seg=40)   # domed head
+    top = z0 + 0.15 + shell
+    m.vcyl(0.14, 0.03, 0, 0, top, 'metal', seg=24)                            # head plate
+    # handling ring on four posts
+    ring_z, ring_r = top + 0.22, r * 0.95
+    for a in range(4):
+        ang = a * math.pi / 2
+        m.strut((ring_r * 0.75 * math.cos(ang), ring_r * 0.75 * math.sin(ang), top - 0.08),
+                (ring_r * math.cos(ang), ring_r * math.sin(ang), ring_z), 0.03)
+    n = 16
+    for i in range(n):
+        a0, a1 = 2 * math.pi * i / n, 2 * math.pi * (i + 1) / n
+        m.strut((ring_r * math.cos(a0), ring_r * math.sin(a0), ring_z),
+                (ring_r * math.cos(a1), ring_r * math.sin(a1), ring_z), 0.035)
+    # valve and gauge cluster (front faces -Y)
+    m.vcyl(0.02, 0.12, 0, 0, top + 0.03, 'metal', seg=10)
+    m.vcyl(0.035, 0.012, 0, 0, top + 0.15, 'panel', seg=16)                   # vent valve wheel
+    for x in (-0.09, 0.09):
+        m.box(0.04, 0.04, 0.05, x, -0.02, top + 0.03, 'metal', bevel=0.004)
+        m.vcyl(0.008, 0.04, x, -0.02, top + 0.08, 'metal', seg=8)
+        m.vcyl(0.03, 0.01, x, -0.02, top + 0.12, 'panel', seg=16)             # liquid / gas use valves
+    m.cyl(0.04, 0.03, (0.0, -0.09, top + 0.13), 'dark', axis='Y', seg=20)      # contents gauge
+    m.cyl(0.033, 0.004, (0.0, -0.106, top + 0.13), 'body', axis='Y', seg=20)
+    m.vcyl(0.01, 0.1, 0.0, -0.06, top + 0.03, 'metal', seg=8)
+    m.cyl(0.012, 0.12, (0.15, 0.06, top + 0.07), 'metal', axis='X', seg=8)    # relief valve
+    m.vcyl(0.02, 0.05, 0.21, 0.06, top + 0.07, 'metal', seg=10)
+    return m
+
+
+def pipeline_entry():
+    """Gas service entry: riser from the ground, shut-off valve, regulator with gauge, meter box."""
+    m = Model()
+    r = 0.04
+    m.box(0.62, 0.42, 0.05, 0, 0, 0, 'panel', bevel=0.01)                     # plinth
+    m.vcyl(0.075, 0.02, -0.2, 0, 0.05, 'metal', seg=20)                       # ground sleeve
+    m.vcyl(r, 1.0, -0.2, 0, 0.05, 'accent', seg=20)                           # riser
+    # shut-off valve on the riser with a hand wheel facing front
+    m.box(0.1, 0.1, 0.12, -0.2, 0, 0.42, 'metal', bevel=0.01)
+    m.cyl(0.012, 0.08, (-0.2, -0.09, 0.48), 'metal', axis='Y', seg=8)
+    m.cyl(0.07, 0.015, (-0.2, -0.135, 0.48), 'accent', axis='Y', seg=20)
+    for z in (0.4, 0.56):
+        m.vcyl(r + 0.022, 0.025, -0.2, 0, z, 'metal', seg=20)                 # flanges
+    # elbow and horizontal run through the regulator
+    zt = 1.05
+    m.sphere(r + 0.01, (-0.2, 0, zt), 'accent')
+    m.cyl(r, 0.42, (0.01, 0, zt), 'accent', axis='X', seg=20)
+    m.cyl(0.07, 0.12, (0.0, 0, zt), 'metal', axis='X', seg=24)                # regulator body
+    m.vcyl(0.09, 0.08, 0.0, 0, zt + 0.06, 'metal', r2=0.08, seg=28)           # diaphragm housing
+    m.vcyl(0.03, 0.12, 0.0, 0, zt + 0.14, 'metal', seg=12)                    # spring bonnet
+    m.vcyl(0.045, 0.04, 0.0, 0, zt + 0.26, 'panel', seg=12)
+    m.vcyl(0.008, 0.08, 0.12, -0.02, zt, 'metal', seg=8)                      # gauge
+    m.cyl(0.045, 0.03, (0.12, -0.04, zt + 0.12), 'dark', axis='Y', seg=20)
+    m.cyl(0.038, 0.004, (0.12, -0.057, zt + 0.12), 'body', axis='Y', seg=20)
+    # outlet down into the meter box and out toward the building (+X)
+    m.sphere(r + 0.01, (0.22, 0, zt), 'accent')
+    m.vcyl(r, 0.35, 0.22, 0, zt - 0.35, 'accent', seg=20)
+    m.box(0.2, 0.16, 0.26, 0.22, 0.0, 0.42, 'body', bevel=0.012)              # meter box
+    m.box(0.1, 0.012, 0.06, 0.22, -0.085, 0.58, 'dark', bevel=0.002)          # meter window
+    m.vcyl(r, 0.3, 0.22, 0, 0.12, 'accent', seg=20)
+    m.cyl(r, 0.1, (0.27, 0, 0.12), 'accent', axis='X', seg=20)
+    m.cyl(r + 0.022, 0.025, (0.31, 0, 0.12), 'metal', axis='X', seg=20)       # outlet flange
+    return m
+
+
 # ------------------------------------------------------------------- wall-mounted regulators
 
 MOUNT_Z = 1.3  # center height of wall-mounted regulators
@@ -1478,6 +1558,10 @@ MODELS = [
      'Standard 200 l steel drum (0.6 m diameter, 0.9 m tall) with rolling hoops; for oils, solvents and chemicals. Drawn as a small circle. Synonyms: barrel, 55 gallon drum, oil drum.'),
     ('drum-spill-pallet', 'Drums on spill pallet', drum_spill_pallet,
      'Spill containment pallet (1.3 × 1.3 m) with grating carrying four 200 l drums, 1.2 m tall; in chemical stores and workshops. Drawn as a square with four circles. Synonyms: spill pallet, bunded pallet, drum sump.'),
+    ('dewar', 'Dewar', dewar,
+     'Portable cryogenic liquid cylinder (about 0.58 m diameter, 1.6 m tall, 180–230 l) for liquid nitrogen, oxygen, argon or CO2: an insulated vessel on a castor base with a top handling ring and a valve and contents-gauge cluster. Drawn as a circle, often in a row in a gas store or next to a lab or process tool. Synonyms: dewar, liquid cylinder, LC, cryo cylinder, portable cryogenic container.'),
+    ('pipeline-entry', 'Pipeline entry', pipeline_entry,
+     'Gas service entry where a supply line enters the site from a utility main or external pipeline (about 0.6 × 0.4 m, 1.3 m tall): a pipe rising from the ground with a shut-off valve, a pressure regulator with gauge and a meter box, continuing toward the building. Drawn as a small symbol at a site boundary or outer wall, often labelled with the gas. Synonyms: gas service entry, pipeline inlet, supply station, pressure reduction station, PRS, meter set.'),
     ('cylinder-regulator', 'Cylinder regulator', cylinder_regulator,
      'Wall-mounted dual-gauge gas pressure regulator (about 0.45 m wide) on a bracket at 1.3 m, with an inlet nut, an outlet valve and a hose barb; reduces cylinder pressure for a line or instrument. Drawn as a small symbol on a wall, often next to a cylinder. Synonyms: pressure regulator, pressure reducer, cylinder regulator.'),
     ('regulator-panel-4', 'Regulator panel (4)', regulator_panel_4,
