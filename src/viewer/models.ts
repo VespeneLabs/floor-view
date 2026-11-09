@@ -11,6 +11,8 @@ import type { PickInfo } from './sceneBuilder';
 export interface ModelStyle {
   clay: THREE.Color;
   accent: THREE.Color | null;
+  /** Color every material in `accent` (a state tint), not only accent parts. */
+  whole?: boolean;
 }
 
 /** True for materials that take the accent color. */
@@ -62,7 +64,7 @@ export function applyModelStyle(instance: THREE.Object3D, style: ModelStyle): vo
       const u = m.userData.vlStyle as StyleUniforms | undefined;
       if (!u) continue;
       u.vlClay.value.copy(style.clay);
-      const accent = hasAccentParts && !isAccentMaterial(m) ? null : style.accent;
+      const accent = hasAccentParts && !style.whole && !isAccentMaterial(m) ? null : style.accent;
       u.vlAccentOn.value = accent ? 1 : 0;
       if (accent) u.vlAccent.value.copy(accent);
     }

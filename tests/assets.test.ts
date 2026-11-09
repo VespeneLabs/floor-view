@@ -254,6 +254,29 @@ describe('Gas kit', () => {
     expect(withAccent).toBeGreaterThanOrEqual(GAS_MODELS.length - 2);
   });
 
+  it('tints the whole model, accent parts or not, for a state tint', async () => {
+    const { ModelCache, applyModelStyle } = await import('../src/viewer/models');
+    const template = new THREE.Group().add(
+      new THREE.Mesh(new THREE.BoxGeometry(), [new THREE.MeshStandardMaterial({ name: 'body' }), new THREE.MeshStandardMaterial({ name: 'accent' })]),
+    );
+    const clay = new THREE.Color('#eeeeee');
+    const instance = new ModelCache().instantiate(template, { kind: 'marker', id: 'm', levelId: 'l' }, { clay, accent: null });
+    const [b, a] = (instance.children[0] as THREE.Mesh).material as THREE.Material[];
+    applyModelStyle(instance, { clay, accent: new THREE.Color('#ef4444'), whole: true });
+    expect([b!.userData.vlStyle.vlAccentOn.value, a!.userData.vlStyle.vlAccentOn.value]).toEqual([1, 1]);
+    expect(b!.userData.vlStyle.vlAccent.value.getHexString()).toBe('ef4444');
+    applyModelStyle(instance, { clay, accent: null }); // tint removed, no marker color
+    expect([b!.userData.vlStyle.vlAccentOn.value, a!.userData.vlStyle.vlAccentOn.value]).toEqual([0, 0]);
+  });
+
+  it('remembers marker glyph and placeholder base colors so tints can be removed', () => {
+    const level = createPlan().levels[0]!;
+    level.markers = [marker(), { id: 'dot', name: 'Exit', position: { x: 1, y: 1 }, color: '#16a34a' }];
+    const built = buildLevel(level, undefined, new Map([['desk', DESK]]));
+    expect(built.models[0]!.placeholder!.userData.baseColor).toBe('#6366f1');
+    expect(built.markers.get('dot')!.userData.baseColor).toBe('#16a34a');
+  });
+
   it('marks wall-mounted models so the viewer keeps their height', async () => {
     const { gasAssets } = await import('../src/gas/index');
     const assets = gasAssets('/gas');
