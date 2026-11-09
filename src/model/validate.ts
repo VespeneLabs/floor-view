@@ -94,6 +94,11 @@ function marker(value: unknown, path: string): Marker {
   if (kind) m.kind = kind;
   const color = optStr(o.color, `${path}.color`);
   if (color) m.color = color;
+  const model = optStr(o.model, `${path}.model`);
+  if (model) m.model = model;
+  if (o.rotation !== undefined) m.rotation = num(o.rotation, `${path}.rotation`);
+  if (o.scale !== undefined) m.scale = num(o.scale, `${path}.scale`, { positive: true });
+  if (o.elevation !== undefined) m.elevation = num(o.elevation, `${path}.elevation`);
   const data = optData(o.data, `${path}.data`);
   if (data) m.data = data;
   return m;

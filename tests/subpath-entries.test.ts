@@ -80,3 +80,15 @@ describe('@vespenelabs/floorview/architect', () => {
     expect(graph.files.every((f) => f.startsWith(resolve(ROOT, 'src/architect')) || f.startsWith(MODEL_DIR) || f.includes('/src/core/'))).toBe(true);
   });
 });
+
+describe('@vespenelabs/floorview/kenney', () => {
+  it('is pure data: no packages, no DOM, only src/kenney and src/model', () => {
+    const graph = importGraph(resolve(ROOT, 'src/kenney/index.ts'));
+    expect(graph.bare).toEqual([]);
+    for (const file of graph.files) {
+      expect(file.startsWith(resolve(ROOT, 'src/kenney')) || file.startsWith(MODEL_DIR), file).toBe(true);
+      // Model names like 'wall-window' are data: check the code without its string literals.
+      expect(code(file).replace(/'[^'\n]*'/g, "''"), file).not.toMatch(DOM_GLOBALS);
+    }
+  });
+});

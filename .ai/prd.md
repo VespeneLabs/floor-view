@@ -148,8 +148,23 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-ARC-05: The model is provider-agnostic behind `ArchitectModel`. `createAnthropicArchitectModel({ client | apiKey, model })` uses `@anthropic-ai/sdk` as an optional peer dependency; `createMockArchitectModel` serves the scripted assistant for host tests and e2e.
 - FR-ARC-06: Hosts add domain guidance with `extraInstructions`, appended to the system prompt after the cached agent prompt.
 - FR-ARC-07: The server helper enforces request limits (message count, total image bytes, image count, text size) and reports violations as 413 (malformed requests as 400) before streaming.
+- FR-ARC-08: When the drawing shows objects (machines, conveyors, racks, furniture, sanitary fittings, vehicles), the assistant places the best-matching 3D model from the host's asset catalog as a marker (`model`, footprint-center position, `rotation`, optional `scale`), matching by meaning first and footprint size second. With no good match it uses a plain marker or leaves the object out. The host passes `ModelAsset`s to `ArchitectController` (`assets`; `ai: false` excludes a model); the request carries them and the server renders them into a cached system block after the agent prompt (`formatAssetCatalog`), or uses a server-chosen list (`assets` option). Request limits cover the catalog (`maxAssets`, `maxCatalogChars`).
+- FR-ARC-09: `convertProposal` validates placements (unknown ids, with a suggestion, bad rotation, scale outside 0.25-4, models without a catalog) and returns problems to the assistant; the preview image sent back to the model draws each model's footprint with its front edge. `ModelAsset.description` describes a model for AI matching; the Kenney catalog has hand-written descriptions (`src/kenney/descriptions.ts`) and excludes models unsuited to floor plans.
 
-### 3.9 Non-functional requirements
+### 3.10 3D model assets (Should)
+
+- FR-AST-01: A marker can show a 3D model: `model` (an asset id), `rotation` (degrees, clockwise in plan view) and `scale` are optional marker fields, validated by `parsePlan`. The plan stores only the id; unknown ids fall back to the marker glyph.
+- FR-AST-02: Hosts pass `ModelAsset`s (id, name, glTF/GLB URL, scale, size in meters, preview) to the viewer and the editor (`assets` option, `setAssets`).
+- FR-AST-03: The viewer loads each model once per URL, shows a box of the asset's size until it loads (or if it fails), centers the model on the marker and keeps picking, hover and tooltips working for the whole model.
+- FR-AST-04: The editor draws models as rotated footprints with a front tick, selectable anywhere inside. A marker template (`setMarkerTemplate`) lets the marker tool place a chosen model repeatedly, with a footprint preview; `Q`/`E` rotate the template or selection by 15° (`Shift`: 90°).
+- FR-AST-05: The package ships a CC0 Kenney catalog (`@vespenelabs/floorview/kenney`: 795 models in 8 kits, files in `assets/kenney/`) and a furnished demo plan (`createKenneyDemoPlan`: factory floor and clinic). `scripts/import-kenney.mjs` re-imports kits and regenerates the catalog.
+- FR-AST-08: The package includes a "Gas" kit (`@vespenelabs/floorview/gas`) of 56 industrial gas and cleanroom models built from code in Blender (`scripts/blender/gas_kit.py`): cylinders and bulk supply (bulk tank, vaporizer, tube trailer and ISO container, bundles, cage, N2/H2 generators, compressor, purifier), cabinets and distribution (gas/BSGS cabinets, valve panels and boxes, mixing panel, pipe, duct and cable tray runs), safety (gas detection, emergency shower, extinguishers, safety cabinet, ESD button), cleanroom and fab (process and cluster tools, stocker, chemical dispense, pass box, gowning bench, flow hoods), plant (scrubber, stack, fan, chiller, AHU) and logistics (forklift, pallet jack, IBC, drums). Real-world sizes, clay-look previews, descriptions for AI matching, and `accent` material parts that take the marker color in the clay look while the body stays white. Studio lists it first in the asset library.
+- FR-AST-09: Models can be placed and arranged in 3D: drag a model from the asset library onto the 3D view (with a placement preview) or the 2D editor; drag markers/models across the floor in the 3D view (snapped, one undo step); rotate (Q/E) and delete the selection with the 3D view focused. Library: `viewer.clientToPlan`, `setGhost`, `movableMarkers` + `markermove`, `editor.addMarker`.
+- FR-AST-10: Markers have an optional `elevation` (height above the level floor) to raise models onto mezzanines, tables or walls, edited in the inspector or with Page Up/Down in the 3D view. Assets can be `mounted` (wall-mounted, authored at mounting height, kept by the viewer); the Gas kit has wall-mounted pressure regulators (cylinder regulator, point-of-use regulator, 2- and 4-regulator panels).
+- FR-AST-07: Models are always decolorized (clay: white matte shaded by the original brightness), whatever kit they come from. A marker's color is an optional accent: it colors a model's accent parts (or the whole model if it has none), so equipment can be highlighted against white surroundings. The viewer can hide all models (`setShowModels`); Studio has an Assets toggle in the viewer, an accent color (with None) in the inspector, and decolorized thumbnails in the asset library.
+- FR-AST-06: Studio has an asset library panel (search, kit filter, thumbnails) to pick a model to place, rotation and scale fields in the inspector, rotate buttons in the toolbar and File → Load 3D assets demo.
+
+### 3.11 Non-functional requirements
 
 - NFR-01: TypeScript strict mode (`noUncheckedIndexedAccess`, `noUnused*`, `verbatimModuleSyntax`) for the library and the studio.
 - NFR-02: The library builds to ES and UMD bundles with CSS and type declarations.
@@ -176,7 +191,8 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - Saving plans to a server or sharing them between users; the browser stores one plan.
 - Saving the underlay scan with the plan (it is lost on reload).
 - PDF upload (only images), DXF/IFC/CAD import and export.
-- Doors and windows as wall openings, furniture, dimensions and annotations.
+- Doors and windows as wall openings, dimensions and annotations.
+- Stacking models (e.g. a monitor on a desk: models sit on the floor) and instanced rendering for thousands of models.
 - Multi-select, copy and paste.
 - Translations (English only) and imperial units (meters only).
 
@@ -378,6 +394,15 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - Acceptance Criteria:
   - With `npm run dev:mock`, the wizard asks questions, proposes a generic factory and summarizes it, and the result can be used in the editor.
 
+- ID: US-055
+- Title: Recognized equipment and furniture as 3D models
+- Description: As a facility planner, I want the assistant to turn machines, racks, furniture and sanitary fittings on my drawing into 3D models so that the imported plan already shows how the space is used.
+- Acceptance Criteria:
+  - "Machines, equipment and furniture (3D models)" in the wizard is on by default; turned off, the assistant gets no model catalog.
+  - Objects with a good match appear as models at their drawn position and orientation in the 2D and 3D preview and in the editor after applying the draft; objects without a good match become plain markers or are left out.
+  - The assistant never uses a model id outside the catalog; invalid placements are corrected by the assistant before the draft is shown.
+  - In `npm run dev:mock`, the mock draft contains example machines, conveyors, racks and furniture.
+
 ### 5.6 Studio basics
 
 - ID: US-050
@@ -403,6 +428,15 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - Description: As a user on a small screen, I want the studio to stay usable.
 - Acceptance Criteria:
   - At 360 px width the panels stack and there is no horizontal page scroll.
+
+- ID: US-054
+- Title: Furnish a plan with 3D models
+- Description: As a facility planner, I want to place machines, furniture and vehicles on the plan so that the 3D view shows how the space is used.
+- Acceptance Criteria:
+  - I can search the asset library, pick a model and click the plan to place it repeatedly, seeing its footprint before I click.
+  - I can rotate a model while placing it or after selecting it (Q/E or the inspector) and change its scale; each change is one undo step.
+  - The 3D view shows the model at the marker's position and rotation, and clicking it selects the marker.
+  - File → Load 3D assets demo loads a furnished factory and clinic.
 
 ## 6. Success Metrics
 

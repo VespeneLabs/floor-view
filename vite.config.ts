@@ -15,6 +15,8 @@ export const SUBPATH_ENTRIES = {
   model: src('model/index.ts'),
   architect: src('architect/index.ts'),
   'architect/server': src('architect/server/index.ts'),
+  kenney: src('kenney/index.ts'),
+  gas: src('gas/index.ts'),
 };
 
 // Library build (dist/) and the library's unit tests. Floorview Studio has its own config in studio/.

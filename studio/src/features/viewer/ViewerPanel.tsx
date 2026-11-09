@@ -1,4 +1,4 @@
-import { FloorplanViewer, type ViewMode } from '@vespenelabs/floorview';
+import { FloorplanViewer, type Marker, type ViewMode } from '@vespenelabs/floorview';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { occupancyLayer, sensorLayer } from './simulated-layers';
@@ -7,6 +7,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useStudio, type ViewSettings } from '@/features/studio/studio-context';
+import { assetTemplate, draggedAsset, endAssetDrag, snapToGrid } from '@/features/assets/asset-drag';
+import { ASSETS } from '@/lib/assets';
 import { useViewerTheme } from './useViewerTheme';
 
 /** Simulated data refresh interval while a data layer is on. */
@@ -34,7 +36,12 @@ export function ViewerPanel() {
 
   useEffect(() => {
     if (!container.current) return;
-    const instance = new FloorplanViewer(container.current, { plan: initialPlan, level: initialPlan.levels[0]?.id });
+    const instance = new FloorplanViewer(container.current, {
+      plan: initialPlan,
+      level: initialPlan.levels[0]?.id,
+      assets: ASSETS,
+      movableMarkers: true,
+    });
     setViewer(instance);
     return () => {
       setViewer(null);
@@ -65,6 +72,22 @@ export function ViewerPanel() {
     viewer?.setShowLabels(view.labels);
   }, [viewer, view.labels]);
 
+  useEffect(() => {
+    viewer?.setShowModels(view.models);
+  }, [viewer, view.models]);
+
+
+  // Dragging a marker or 3D model in the viewer moves it in the plan (one undo step) and selects it.
+  useEffect(() => {
+    if (!viewer || !editor) return;
+    return viewer.on('markermove', ({ id, levelId, position }) => {
+      const ref = { kind: 'marker' as const, id, levelId };
+      editor.setActiveLevel(levelId);
+      editor.updateEntity(ref, { position });
+      editor.select(ref);
+      announce(`Moved to ${position.x.toFixed(2)}, ${position.y.toFixed(2)} m`);
+    });
+  }, [viewer, editor, announce]);
 
   // Clicking an entity in the viewer selects it in the editor.
   useEffect(() => {
@@ -114,12 +137,61 @@ export function ViewerPanel() {
           </ToggleGroup>
           <Toggle label="All levels" setting="allLevels" />
           <Toggle label="Labels" setting="labels" />
+          <Toggle label="Assets" setting="models" />
           <Toggle label="Occupancy" setting="occupancy" />
           <Toggle label="Sensors" setting="sensors" />
         </>
       }
     >
-      <div ref={container} className="relative min-h-0 flex-1" />
+      <div
+        ref={container}
+        className="relative min-h-0 flex-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+        tabIndex={0}
+        role="application"
+        aria-label="3D view. Drag assets here from the library; drag models to move them; Q, E rotate, Page Up / Page Down raise or lower, and Delete removes the selected model."
+        onPointerDown={() => container.current?.focus({ preventScroll: true })}
+        onKeyDown={(e) => {
+          if (!editor || e.metaKey || e.ctrlKey || e.altKey) return;
+          const key = e.key.toLowerCase();
+          const selection = editor.getSelection();
+          if (key === 'q' || key === 'e') editor.rotateSelection((e.shiftKey ? 90 : 15) * (key === 'q' ? -1 : 1));
+          else if ((key === 'pageup' || key === 'pagedown') && selection?.kind === 'marker') {
+            // Raise / lower the selected model (10 cm, Shift: 50 cm), rounded to the centimeter.
+            const marker = editor.getSelectedEntity() as Marker;
+            const step = (e.shiftKey ? 0.5 : 0.1) * (key === 'pageup' ? 1 : -1);
+            const elevation = Math.round(((marker.elevation ?? 0) + step) * 100) / 100;
+            editor.updateEntity(selection, { elevation: elevation === 0 ? undefined : elevation });
+            announce(`Height above floor ${elevation.toFixed(2)} m`);
+          }
+          else if (key === 'delete' || key === 'backspace') editor.deleteSelection();
+          else if (key === 'escape') editor.select(null);
+          else return;
+          e.preventDefault();
+        }}
+        onDragOver={(e) => {
+          const asset = draggedAsset(e);
+          const at = asset && viewer?.clientToPlan(e.clientX, e.clientY);
+          if (!asset || !at) return viewer?.setGhost(null);
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          viewer?.setGhost({ levelId: at.levelId, position: snapToGrid(at.position), size: asset.size });
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) viewer?.setGhost(null);
+        }}
+        onDrop={(e) => {
+          const asset = draggedAsset(e);
+          const at = asset && viewer?.clientToPlan(e.clientX, e.clientY);
+          viewer?.setGhost(null);
+          endAssetDrag();
+          if (!asset || !at || !editor) return;
+          e.preventDefault();
+          if (editor.addMarker(at.levelId, assetTemplate(asset), snapToGrid(at.position))) {
+            container.current?.focus({ preventScroll: true });
+            announce(`Added ${asset.name}. Drag it to move; Q / E rotate; Delete removes it.`);
+          }
+        }}
+      />
     </Panel>
   );
 }

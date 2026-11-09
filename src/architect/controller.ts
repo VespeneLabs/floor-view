@@ -1,9 +1,11 @@
 import { Emitter } from '../core/emitter';
+import type { ModelAsset } from '../model/assets';
 import type { FloorPlan, Underlay } from '../model/types';
 import { convertProposal } from './conversion';
 import {
   ARCHITECT_TOOLS,
   isToolUse,
+  type ArchitectAsset,
   type ArchitectContentBlock,
   type ArchitectMessage,
   type ArchitectStopReason,
@@ -72,7 +74,13 @@ export interface ArchitectControllerEvents {
   proposal: ArchitectProposal;
 }
 
-export type PreviewRenderer = (scan: Scan, plan: FloorPlan, metersPerPixel: number) => Promise<{ base64: string; mediaType: 'image/png' | 'image/jpeg' }>;
+/** `assets` are the models offered to the assistant (to draw model markers as footprints). */
+export type PreviewRenderer = (
+  scan: Scan,
+  plan: FloorPlan,
+  metersPerPixel: number,
+  assets: readonly ModelAsset[],
+) => Promise<{ base64: string; mediaType: 'image/png' | 'image/jpeg' }>;
 
 export interface ArchitectControllerOptions {
   transport: ArchitectTransport;
@@ -80,6 +88,12 @@ export interface ArchitectControllerOptions {
   maxAutoSteps?: number;
   /** Draws a proposal over the scan for the model to check itself. Default: canvas overlay. */
   renderPreview?: PreviewRenderer;
+  /**
+   * 3D models the assistant may place as markers (`model`, `rotation`, `scale`). Assets with
+   * `ai: false` are left out. Sent with every request; the server puts them into a cached prompt
+   * block, so keep the list the same for a conversation. Default: none.
+   */
+  assets?: readonly ModelAsset[];
 }
 
 /** What the wizard asked before starting; turned into the first message by `architectBrief`. */
@@ -133,12 +147,32 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
   private readonly transport: ArchitectTransport;
   private readonly maxAutoSteps: number;
   private readonly renderPreview: PreviewRenderer;
+  private assets: readonly ModelAsset[] = [];
+  private wireAssets: ArchitectAsset[] = [];
 
   constructor(options: ArchitectControllerOptions) {
     super();
     this.transport = options.transport;
     this.maxAutoSteps = options.maxAutoSteps ?? 6;
     this.renderPreview = options.renderPreview ?? renderProposalOverlay;
+    this.setAssets(options.assets ?? []);
+  }
+
+  /**
+   * Replaces the 3D models the assistant may place (see `ArchitectControllerOptions.assets`).
+   * Only before `start()`: a conversation keeps its catalog. Returns false when ignored.
+   */
+  setAssets(assets: readonly ModelAsset[]): boolean {
+    if (this.messages.length) return false;
+    this.assets = assets.filter((a) => a.ai !== false);
+    this.wireAssets = this.assets.map(({ id, name, category, size, description }) => ({
+      id,
+      name,
+      ...(category ? { category } : {}),
+      size: { width: size.width, depth: size.depth, height: size.height },
+      ...(description ? { description } : {}),
+    }));
+    return true;
   }
 
   getState(): ArchitectState {
@@ -235,7 +269,8 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
     const textId = this.nextId++;
     let text = '';
     try {
-      for await (const event of this.transport({ messages: this.messages }, signal)) {
+      const request = this.wireAssets.length ? { messages: this.messages, assets: this.wireAssets } : { messages: this.messages };
+      for await (const event of this.transport(request, signal)) {
         switch (event.type) {
           case 'text': {
             text += event.text;
@@ -286,7 +321,7 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
 
     if (block.name === ARCHITECT_TOOLS.proposeFloorPlan && this.scan) {
       const scan = this.scan;
-      const result = convertProposal(block.input, scan);
+      const result = convertProposal(block.input, scan, { assets: this.assets });
       if (!result.ok) {
         return fail(`The plan could not be shown. Fix these problems and propose again:\n${result.errors.map((e) => `- ${e}`).join('\n')}`);
       }
@@ -301,7 +336,7 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
       this.emit('proposal', proposal);
       const content: ArchitectContentBlock[] = [{ type: 'text', text: result.summary }];
       try {
-        const preview = await this.renderPreview(scan, result.plan, result.underlay.width / scan.width);
+        const preview = await this.renderPreview(scan, result.plan, result.underlay.width / scan.width, this.assets);
         content.push({ type: 'image', source: { type: 'base64', media_type: preview.mediaType, data: preview.base64 } });
       } catch {
         content.push({ type: 'text', text: '(The preview image could not be rendered this time.)' });

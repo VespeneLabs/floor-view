@@ -46,7 +46,7 @@ A floor plan is a plain, JSON-serializable object (`FloorPlan`, see `src/model/t
 | `Level` | `id`, `name`, `elevation`, `height`, `walls`, `rooms`, `markers` | | A plan has at least one level. New levels stack at `max(elevation + height)`. |
 | `Wall` | `id`, `start`, `end`, `thickness` | `height` | A straight segment. Door openings are gaps between segments. |
 | `Room` | `id`, `name`, `points` (≥ 3) | `color`, `data` | A simple polygon, not closed: the last point is not a repeat of the first. |
-| `Marker` | `id`, `name`, `position` | `kind`, `color`, `data` | A point of interest such as a desk, exit or device. |
+| `Marker` | `id`, `name`, `position` | `kind`, `color`, `model`, `rotation`, `scale`, `elevation`, `data` | A point of interest such as a desk, exit or device. With `model` (a `ModelAsset` id) it is drawn as a 3D model, rotated `rotation`° clockwise, scaled by `scale` and raised `elevation` m above the floor (see [3D model assets](assets.md)). |
 
 `data` is free-form metadata for the host app (capacity, external ids…). The library never interprets it.
 

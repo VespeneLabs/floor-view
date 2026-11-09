@@ -120,6 +120,12 @@
 .vl-editor__marker { stroke: var(--vl-marker-stroke); stroke-width: 2; }
 .vl-editor__marker:not([fill]) { fill: var(--vl-marker); }
 .vl-editor__marker.is-selected { stroke: var(--vl-selection); stroke-width: 3; }
+.vl-editor__asset-body { fill-opacity: 0.55; stroke: var(--vl-marker); stroke-width: 1.5; stroke-linejoin: round; }
+.vl-editor__asset-body:not([fill]) { fill: var(--vl-marker); }
+.vl-editor__asset-front { stroke: var(--vl-marker); stroke-width: 2; stroke-linecap: round; }
+.vl-editor__asset.is-selected .vl-editor__asset-body { stroke: var(--vl-selection); stroke-width: 3; fill-opacity: 0.75; }
+.vl-editor__asset.is-ghost { pointer-events: none; opacity: 0.6; }
+.vl-editor__asset.is-ghost .vl-editor__asset-body { stroke-dasharray: 4 3; }
 
 /* Host-managed overlay points (setOverlayPoints): fixed screen size, above the plan. */
 .vl-editor__overlay-point { cursor: grab; }

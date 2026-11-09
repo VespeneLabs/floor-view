@@ -21,6 +21,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { VespeneLabsMark } from '@/components/VespeneLabsMark';
 import { useStudio } from '@/features/studio/studio-context';
 import { cssToken, useViewerTheme } from '@/features/viewer/useViewerTheme';
+import { ASSETS } from '@/lib/assets';
 
 /** Timeline step (hours) and playback speed: 15 simulated minutes per tick. */
 const STEP = 0.25;
@@ -106,7 +107,7 @@ function useAirQualityViewer(plan: FloorPlan | null) {
   // feed it the plan below; its first setPlan frames the camera.
   useEffect(() => {
     if (!container.current) return;
-    const instance = new FloorplanViewer(container.current);
+    const instance = new FloorplanViewer(container.current, { assets: ASSETS });
     setViewer(instance);
     return () => {
       setViewer(null);

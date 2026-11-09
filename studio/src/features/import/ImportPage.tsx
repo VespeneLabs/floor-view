@@ -5,7 +5,7 @@ import { useId, useState } from 'react';
 
 import { ChatPanel } from './ChatPanel';
 import { PlanPreview } from './PlanPreview';
-import { useArchitect, type FacilityDetails, type Proposal } from './useArchitect';
+import { MODELS_OPTION, useArchitect, type FacilityDetails, type Proposal } from './useArchitect';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -25,7 +25,7 @@ const STEPS: { id: Step; label: string }[] = [
 
 const BUILDING_TYPES = ['Factory', 'Warehouse / logistics', 'Mixed production and offices', 'Office building', 'Other'];
 const FLOORS = ['1 floor', '1 floor with mezzanine', '2 floors', '3 or more floors'];
-const INCLUDE = ['Rooms and areas', 'Machines and equipment', 'Exits and doors', 'Loading docks', 'Fire safety equipment'];
+const INCLUDE = ['Rooms and areas', MODELS_OPTION, 'Exits and doors', 'Loading docks', 'Fire safety equipment'];
 
 function Stepper({ step }: { step: Step }) {
   const index = STEPS.findIndex((s) => s.id === step);
@@ -100,10 +100,10 @@ function DetailsStep({ scan, onBack, onStart }: { scan: Scan; onBack: () => void
     buildingType: 'Factory',
     floors: '1 floor',
     knownMeasurement: '',
-    include: ['Rooms and areas', 'Exits and doors', 'Loading docks'],
+    include: ['Rooms and areas', MODELS_OPTION, 'Exits and doors', 'Loading docks'],
     notes: '',
   });
-  const ids = { type: useId(), floors: useId(), measure: useId(), notes: useId() };
+  const ids = { type: useId(), floors: useId(), measure: useId(), notes: useId(), include: useId(), modelsHint: useId() };
   const update = (patch: Partial<FacilityDetails>) => setDetails((d) => ({ ...d, ...patch }));
 
   return (
@@ -165,13 +165,14 @@ function DetailsStep({ scan, onBack, onStart }: { scan: Scan; onBack: () => void
         </div>
         <fieldset className="grid gap-2">
           <legend className="mb-1 text-sm font-medium">What should the plan include?</legend>
-          {INCLUDE.map((option) => {
-            const id = `${ids.notes}-${option}`;
+          {INCLUDE.map((option, i) => {
+            const id = `${ids.include}-${i}`;
             return (
               <div key={option} className="flex items-center gap-2">
                 <Checkbox
                   id={id}
                   checked={details.include.includes(option)}
+                  aria-describedby={option === MODELS_OPTION ? ids.modelsHint : undefined}
                   onCheckedChange={(on) => update({ include: on ? [...details.include, option] : details.include.filter((o) => o !== option) })}
                 />
                 <Label htmlFor={id} className="font-normal">
@@ -180,6 +181,9 @@ function DetailsStep({ scan, onBack, onStart }: { scan: Scan; onBack: () => void
               </div>
             );
           })}
+          <p id={ids.modelsHint} className="text-xs text-muted-foreground">
+            3D models come from Studio's model library. The assistant only places a model where it is a good match; other objects become plain markers.
+          </p>
         </fieldset>
         <div className="grid gap-1.5">
           <Label htmlFor={ids.notes}>Anything else? (optional)</Label>

@@ -1,5 +1,6 @@
 import { createPlan, createSamplePlan, parsePlanJSON } from '@vespenelabs/floorview';
-import { ChevronDown, Download, FilePlus2, FolderOpen, Moon, Sparkles, Sun } from 'lucide-react';
+import { createKenneyDemoPlan } from '@vespenelabs/floorview/kenney';
+import { Box, ChevronDown, Download, FilePlus2, FolderOpen, Moon, Sparkles, Sun } from 'lucide-react';
 import { useId, useRef } from 'react';
 
 import { useStudio } from './studio-context';
@@ -107,6 +108,9 @@ export function AppHeader() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => editor?.setPlan(createSamplePlan(), { keepHistory: true })}>
               <Sparkles /> Load sample
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => editor?.setPlan(createKenneyDemoPlan(), { keepHistory: true })}>
+              <Box /> Load 3D assets demo
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => fileInput.current?.click()}>

@@ -1,6 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react';
 
-import type { EditorTool, EntityRef, FloorPlan, FloorplanEditor } from '@vespenelabs/floorview';
+import type { EditorTool, EntityRef, FloorPlan, FloorplanEditor, MarkerTemplate } from '@vespenelabs/floorview';
 
 /** Everything the UI reads from the editor, as one immutable value. */
 export interface EditorSnapshot {
@@ -10,9 +10,11 @@ export interface EditorSnapshot {
   levelId: string;
   canUndo: boolean;
   canRedo: boolean;
+  /** What the marker tool places (e.g. a 3D model picked in the asset library), or null. */
+  markerTemplate: MarkerTemplate | null;
 }
 
-const EVENTS = ['change', 'selectionchange', 'toolchange', 'levelchange', 'historychange'] as const;
+const EVENTS = ['change', 'selectionchange', 'toolchange', 'levelchange', 'historychange', 'templatechange'] as const;
 
 // One cached snapshot per editor, dropped on every editor event. `useSyncExternalStore` needs
 // `getSnapshot` to return the same object until something actually changed.
@@ -28,6 +30,7 @@ function snapshotOf(editor: FloorplanEditor): EditorSnapshot {
       levelId: editor.getActiveLevel().id,
       canUndo: editor.canUndo(),
       canRedo: editor.canRedo(),
+      markerTemplate: editor.getMarkerTemplate(),
     };
     cache.set(editor, snapshot);
   }

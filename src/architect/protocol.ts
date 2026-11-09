@@ -2,7 +2,8 @@
  * Wire protocol between the browser (`ArchitectController`) and the architect endpoint
  * (`runArchitectTurn` / `createArchitectMiddleware`).
  *
- * Request: `{ messages }`, the whole conversation, append-only. Response: newline-delimited JSON
+ * Request: `{ messages, assets? }`, the whole conversation (append-only) plus the 3D models the
+ * assistant may place (send the same list on every turn of a conversation). Response: newline-delimited JSON
  * (`application/x-ndjson`) events streaming one model turn; the browser runs the tool loop.
  *
  * Messages use the Anthropic Messages shape (role + content blocks). These are the library's own
@@ -46,8 +47,24 @@ export interface ArchitectMessage {
   content: string | ArchitectContentBlock[];
 }
 
+/**
+ * A 3D model the assistant may place as a marker: the parts of a `ModelAsset` it needs. The server
+ * renders the list into its own cached prompt block (see `formatAssetCatalog`).
+ */
+export interface ArchitectAsset {
+  /** `ModelAsset.id`, put into `marker.model`. */
+  id: string;
+  name: string;
+  category?: string;
+  /** Meters: `width` along image x and `depth` along image y at rotation 0, `height` up. */
+  size: { width: number; depth: number; height: number };
+  description?: string;
+}
+
 export interface ArchitectRequest {
   messages: ArchitectMessage[];
+  /** Models the assistant may place. Omit (or send none) for plans without 3D models. */
+  assets?: ArchitectAsset[];
 }
 
 /** Why a turn ended: `end_turn`, `tool_use`, `max_tokens`, `refusal`, … (provider-defined). */

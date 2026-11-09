@@ -68,6 +68,7 @@ The `Publish package` workflow (`.github/workflows/publish.yml`) checks that the
 - [Data model](docs/data-model.md): plan JSON format, coordinates, validation
 - [Viewer](docs/viewer.md): `FloorplanViewer` API, events, data layers
 - [Editor](docs/editor.md): `FloorplanEditor` API, tools, shortcuts, events
+- [3D model assets](docs/assets.md): markers drawn as glTF models, the bundled Kenney catalog (`@vespenelabs/floorview/kenney`), the Gas kit (`@vespenelabs/floorview/gas`) and the demo plan
 - [Architecture](docs/architecture.md): how the pieces fit together, design decisions, roadmap
 - [AI architect](docs/architect.md): `@vespenelabs/floorview/architect` (browser tool loop) and `/architect/server` (Node, provider-agnostic models)
 - [Floorview Studio](docs/studio.md): the React demo app, its stack and how it uses the library

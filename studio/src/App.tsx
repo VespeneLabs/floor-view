@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AssetLibrary } from '@/features/assets/AssetLibrary';
 import { EditorPanel } from '@/features/editor/EditorPanel';
 import { EditorToolbar } from '@/features/editor/EditorToolbar';
 import { Inspector } from '@/features/inspector/Inspector';
@@ -29,7 +30,10 @@ export function App() {
             <main className="grid gap-2 overflow-y-auto p-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_17rem] lg:overflow-hidden">
               <EditorPanel />
               <ViewerPanel />
-              <Inspector />
+              <div className="grid min-h-0 gap-2 lg:grid-rows-[minmax(0,3fr)_minmax(0,2fr)]">
+                <AssetLibrary />
+                <Inspector />
+              </div>
             </main>
           </div>
           {route === 'air-quality' && <AirQualityView />}
