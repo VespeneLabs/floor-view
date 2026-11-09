@@ -521,9 +521,10 @@ def bulk_tank():
         m.box(0.34, 0.34, 0.03, x, y, 0.15, 'metal', bevel=0.004)
         m.box(0.16, 0.16, 1.45, x, y, 0.18, 'metal', bevel=0.01)
     r = 1.25
-    m.vcyl(r, 7.5, 0, 0, 1.5, 'body', seg=40)
-    m.ellipsoid((r, r, 0.45), (0, 0, 1.5), 'body', seg=40)
-    m.ellipsoid((r, r, 0.5), (0, 0, 9.0), 'body', seg=40)
+    # The vessel is the accent, so a marker color (e.g. stock level) reads at a glance.
+    m.vcyl(r, 7.5, 0, 0, 1.5, 'accent', seg=40)
+    m.ellipsoid((r, r, 0.45), (0, 0, 1.5), 'accent', seg=40)
+    m.ellipsoid((r, r, 0.5), (0, 0, 9.0), 'accent', seg=40)
     for z in (3.4, 6.2):
         m.vcyl(r + 0.02, 0.05, 0, 0, z, 'panel', seg=40)
     # level / fill lines up the front and the vent and relief valves on top
@@ -720,16 +721,17 @@ def hydrogen_generator():
         m.box(0.74, 0.02, 1.8, x, -0.605, 0.2, 'panel', bevel=0.005)
         slats(m, 0.6, 0.45, x, -0.62, 0.3, 6)
         m.box(0.03, 0.04, 0.25, x + 0.3, -0.63, 1.0, 'metal', bevel=0.006)
-    m.box(0.3, 0.022, 0.2, -0.8, -0.62, 1.4, 'dark', bevel=0.004)
+    m.box(0.3, 0.022, 0.2, -0.8, -0.62, 1.05, 'dark', bevel=0.004)
     for i in range(3):
-        m.box(0.03, 0.012, 0.03, -0.9 + i * 0.07, -0.62, 1.68, 'accent' if i == 0 else 'panel', bevel=0)
-    m.box(2.44, 1.24, 0.06, 0, 0, 1.95, 'accent', bevel=0.01)
+        m.box(0.03, 0.012, 0.03, -0.9 + i * 0.07, -0.62, 1.3, 'accent' if i == 0 else 'panel', bevel=0)
+    # Wide accent band around the top of the cabinet (about a third of its height).
+    m.box(2.44, 1.24, 0.6, 0, 0, 1.41, 'accent', bevel=0.012)
     # roof: ventilation hood and H2 / O2 vent stacks
     m.box(0.8, 0.6, 0.3, -0.5, 0.1, 2.1, 'panel', bevel=0.02)
     slats(m, 0.7, 0.24, -0.5, -0.205, 2.13, 4)
-    m.vcyl(0.045, 1.2, 0.6, 0.35, 2.1, 'accent', seg=12)
-    m.vcyl(0.06, 0.08, 0.6, 0.35, 3.3, 'accent', seg=12, r2=0.03)
-    m.vcyl(0.035, 0.9, 0.85, 0.35, 2.1, 'accent', seg=12)
+    m.vcyl(0.07, 1.2, 0.6, 0.35, 2.1, 'accent', seg=16)
+    m.vcyl(0.09, 0.1, 0.6, 0.35, 3.3, 'accent', seg=16, r2=0.04)
+    m.vcyl(0.055, 0.9, 0.85, 0.35, 2.1, 'accent', seg=16)
     # side connections: water in, hydrogen out
     for z, r in ((0.5, 0.025), (0.8, 0.03)):
         m.cyl(r, 0.3, (1.33, 0.2, z), 'accent', axis='X', seg=12)
