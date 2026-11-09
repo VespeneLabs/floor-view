@@ -16,6 +16,8 @@ export interface ArchitectMiddlewareOptions {
   path?: string;
   /** Host guidance appended to the system prompt (see `runArchitectTurn`). */
   extraInstructions?: string;
+  /** Server-chosen 3D models; overrides the request's `assets` (see `runArchitectTurn`). */
+  assets?: RunArchitectTurnOptions['assets'];
   limits?: Partial<ArchitectLimits>;
   /** Raw body limit in bytes, checked while reading. Default 25 MB. */
   maxBodyBytes?: number;
@@ -86,6 +88,7 @@ export function createArchitectMiddleware(options: ArchitectMiddlewareOptions) {
     };
     for await (const event of runArchitectTurn(body, options.model, {
       extraInstructions: options.extraInstructions,
+      assets: options.assets,
       limits: options.limits,
       signal: abort.signal,
       onError: options.onError,

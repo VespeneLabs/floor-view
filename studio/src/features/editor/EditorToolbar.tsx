@@ -9,6 +9,8 @@ import {
   MousePointer2,
   Plus,
   Redo2,
+  RotateCcw,
+  RotateCw,
   SquareDashed,
   Trash2,
   Undo2,
@@ -115,6 +117,20 @@ export function EditorToolbar() {
         icon={Trash2}
         onClick={() => editor?.deleteSelection()}
         disabled={!snapshot?.selection}
+      />
+      <IconAction
+        label="Rotate left 15° (Shift: 90°)"
+        shortcut="Q"
+        icon={RotateCcw}
+        onClick={() => editor?.rotateSelection(-15)}
+        disabled={snapshot?.selection?.kind !== 'marker'}
+      />
+      <IconAction
+        label="Rotate right 15° (Shift: 90°)"
+        shortcut="E"
+        icon={RotateCw}
+        onClick={() => editor?.rotateSelection(15)}
+        disabled={snapshot?.selection?.kind !== 'marker'}
       />
       <IconAction label="Fit to view" shortcut="F" icon={Maximize} onClick={() => editor?.fitView()} disabled={disabled} />
 

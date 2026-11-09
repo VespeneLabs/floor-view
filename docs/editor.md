@@ -15,6 +15,7 @@ const editor = new FloorplanEditor(container, {
   tools: ['select', 'pan'], // optional: the tools the user may use (default: all)
   readOnly: false,          // optional: the user can't change the plan
   overlayPoints: [],        // optional: host-managed points on top (see below)
+  assets: [],               // optional: ModelAsset[] for markers with a 3D model (see assets.md)
 });
 ```
 
@@ -27,7 +28,7 @@ The editor element (`.vl-editor`) is focusable: keyboard shortcuts work once the
 | Select (`V`) | Click to select. Drag to move (by grid steps). Drag the handles of a selected wall or room to reshape it. Drag empty space to pan. |
 | Wall (`W`) | Click the start, then click each corner to add connected walls. Click the same point twice, right-click or press `Esc` to stop. |
 | Room (`R`) | Click the corners. Click the first corner, press `Enter` or right-click to close (≥ 3 points). `Esc` cancels. |
-| Marker (`M`) | Click to place a marker. |
+| Marker (`M`) | Click to place a marker, or a copy of the marker template (e.g. a 3D model, see `setMarkerTemplate`). `Esc` clears the template. |
 | Pan (`H`) | Drag to pan. A middle-mouse drag also pans with any tool. |
 
 | Key / modifier | Effect |
@@ -38,6 +39,7 @@ The editor element (`.vl-editor`) is focusable: keyboard shortcuts work once the
 | `Delete` / `Backspace` | Delete the selection |
 | `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` or `Ctrl+Y` | Undo / redo |
 | `F` | Fit the level into view |
+| `Q` / `E` (`Shift`: 90°) | Rotate the selected marker, or the template being placed, by 15° |
 
 Snapping prefers existing points within 10 px over the grid. The snap cursor turns amber when it locks onto a point.
 
@@ -63,6 +65,10 @@ Snapping prefers existing points within 10 px over the grid. The snap cursor tur
 | `getOverlaySelection()` / `selectOverlayPoint(id \| null)` | The selected overlay point. Selecting one clears the entity selection and vice versa. |
 | `clientToPlan(clientX, clientY, { snap? })` | Client coordinates (e.g. from a `drop` event) → `{ levelId, position }` on the active level in meters, or `null` outside the editor. `snap: true` snaps like a new marker. |
 | `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the position is in the middle, keeping the zoom; switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps. User pan/zoom cancels it. Returns false for an unknown level. |
+| `setAssets(assets)` / `getAssets()` | 3D models: markers with a known `model` are drawn as their rotated footprint. See [3D model assets](assets.md). |
+| `setMarkerTemplate(template \| null)` / `getMarkerTemplate()` | What the marker tool places, e.g. `{ name: 'Desk', kind: 'desk', model: 'kenney/furniture/desk' }`. Names are numbered ("Desk 3"). |
+| `addMarker(levelId, template, position)` | Add a marker from a template (e.g. a 3D model dropped from an asset library) as one undo step, numbered like the marker tool, and select it. Returns a copy, or null for an unknown level or read-only. |
+| `rotateSelection(degrees)` | Rotate the selected marker clockwise, as one undo step. Returns false without a selected marker or in read-only mode. |
 | `fitView()` / `dispose()` | |
 
 Every public mutation is one undoable step. A whole drag also counts as one step.
@@ -77,6 +83,7 @@ editor.on('levelchange', (levelId) => ...);
 editor.on('historychange', ({ canUndo, canRedo }) => ...);
 editor.on('overlaypointselect', (id) => ...);                         // overlay point selected (or null)
 editor.on('overlaypointmove', ({ id, levelId, position }) => ...);    // overlay point dropped after a drag
+editor.on('templatechange', (template) => ...);                      // marker template set, rotated or cleared
 ```
 
 Pair the editor with a viewer by forwarding `change` to `viewer.setPlan(plan)`. In the other direction, map a viewer `click` to `editor.select(...)`. Floorview Studio does both (`studio/src/features/viewer/ViewerPanel.tsx`).

@@ -1,3 +1,4 @@
+import { markerFootprint, type ModelAsset } from '../model/assets';
 import type { FloorPlan } from '../model/types';
 
 /**
@@ -74,10 +75,18 @@ export async function prepareScan(file: File): Promise<Scan> {
 }
 
 /**
- * The proposed plan drawn over the scan (walls red, room outlines blue, markers green), at most
- * `maxEdge` px, for the assistant to check its own geometry against the drawing.
+ * The proposed plan drawn over the scan (walls red, room outlines blue, markers green, 3D model
+ * footprints orange with a thick front edge), at most `maxEdge` px, for the assistant to check its
+ * own geometry against the drawing. `assets` are the models markers may show.
  */
-export async function renderProposalOverlay(scan: Scan, plan: FloorPlan, metersPerPixel: number, maxEdge = 1600): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
+export async function renderProposalOverlay(
+  scan: Scan,
+  plan: FloorPlan,
+  metersPerPixel: number,
+  assets: readonly Pick<ModelAsset, 'id' | 'size'>[] = [],
+  maxEdge = 1600,
+): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
+  const byId = new Map(assets.map((a) => [a.id, a]));
   const img = await loadImage(scan.dataUrl);
   const k = Math.min(1, maxEdge / Math.max(scan.width, scan.height));
   const canvas = document.createElement('canvas');
@@ -109,8 +118,27 @@ export async function renderProposalOverlay(scan: Scan, plan: FloorPlan, metersP
       ctx.lineTo(px(wall.end.x), px(wall.end.y));
       ctx.stroke();
     }
-    ctx.fillStyle = 'rgb(22 163 74)';
     for (const marker of level.markers) {
+      const asset = marker.model ? byId.get(marker.model) : undefined;
+      if (asset) {
+        // Footprint outline; the front edge (corners 2-3, plan +y at rotation 0) drawn thick.
+        const corners = markerFootprint(marker, asset).map((p) => ({ x: px(p.x), y: px(p.y) }));
+        ctx.strokeStyle = 'rgb(234 88 12 / 0.95)';
+        ctx.fillStyle = 'rgb(234 88 12 / 0.18)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        corners.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(corners[2]!.x, corners[2]!.y);
+        ctx.lineTo(corners[3]!.x, corners[3]!.y);
+        ctx.stroke();
+        continue;
+      }
+      ctx.fillStyle = 'rgb(22 163 74)';
       ctx.beginPath();
       ctx.arc(px(marker.position.x), px(marker.position.y), 5, 0, Math.PI * 2);
       ctx.fill();

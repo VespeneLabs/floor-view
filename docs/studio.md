@@ -40,6 +40,7 @@ studio/
       editor/                 EditorPanel (mounts FloorplanEditor), EditorToolbar
       viewer/                 ViewerPanel (mounts FloorplanViewer), simulated data layers
       inspector/              properties of the selection or the active level
+      assets/                 asset library: search and pick a 3D model to place (Kenney catalog, lib/assets.ts)
       air-quality/            air quality page: metrics, sensor simulation, legend and badges
       import/                 AI import wizard: upload, details, chat (useArchitect wraps the library's ArchitectController), preview
 ```
@@ -48,7 +49,7 @@ studio/
 
 Pages are chosen by URL hash (`src/lib/route.ts`, no router package). The editor page stays mounted while hidden, because the editor instance owns the plan and its undo history.
 
-- **Editor** (`#/`): the 2D editor, a live 3D viewer with demo layers, and the property inspector.
+- **Editor** (`#/`): the 2D editor, a live 3D viewer with demo layers, the asset library and the property inspector. Models are drawn as white clay; the inspector's accent color colors a selected model's accent parts, and the viewer's **Assets** toggle shows or hides all models. Drag a model from the asset library onto the 3D view (a box previews where it lands) or the 2D editor to add it; drag models in the 3D view to move them (snapped to 25 cm, Alt for free), and with the 3D view focused `Q`/`E` rotate, `Page Up`/`Page Down` raise or lower the selected model (10 cm, `Shift`: 50 cm; also the inspector's "Height above floor") and `Delete` removes the selection. Picking (clicking) a model in the asset library sets the editor's marker template and switches to the marker tool (click to place, `Q`/`E` rotate, `Esc` stops). File → Load 3D assets demo loads `createKenneyDemoPlan()`.
 - **Air quality** (`#/air-quality`, `features/air-quality/`): monitoring for the current plan, with one simulated sensor per room.
   - **Metrics:** CO₂, temperature, humidity and PM2.5. Each has color stops and labelled bands (Good/Moderate/Poor, or Cold/Comfortable/Warm…) in `metrics.ts`.
   - **Map:** a heatmap layer plus neutral room floors with value tooltips, and sensor spheres whose tooltips show all four metrics. Each sensor shows its current value as a point label (**Values on plan** toggles them), and sensors in the worst band get an alert ring. Layers are re-set every tick and update in place.
@@ -76,6 +77,7 @@ API settings: adaptive thinking with summarized display (shown as a status line)
 - The **editor owns the plan**. `useEditorSnapshot` subscribes to editor events with `useSyncExternalStore` and exposes `{ plan, selection, tool, levelId, canUndo, canRedo }`. UI actions call editor methods, and the resulting events re-render the UI.
 - The **viewer follows the snapshot**: effects call `viewer.setPlan`, `setLevel`, `setMode`, `setShowLabels`, `setLayer` and `setBackground` (on theme change). A viewer click selects the entity in the editor.
 - The **theme** reaches the library through CSS variables. `.vl-studio .vl-editor` maps `--vl-*` to app tokens, so the editor and viewer switch between light and dark with the rest of the UI.
+- **3D models:** `lib/assets.ts` builds the asset list with `kenneyAssets(BASE_URL + 'kenney')` and passes it to the editor and viewers. The repo's `assets/` folder is Studio's Vite `publicDir`, so the GLB files are served in dev and copied into the static build.
 - The plan is autosaved to `localStorage` (`vespenelabs.plan`) and validated with `parsePlanJSON` on load. File → Import/Export reads and writes plan JSON.
 
 Coding conventions for Studio are in `.claude/rules/react.md` and `.claude/rules/styling.md`.

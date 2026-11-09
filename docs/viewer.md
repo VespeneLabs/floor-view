@@ -12,7 +12,8 @@ const viewer = new FloorplanViewer(container, {
   level: 'all',          // a level id, or 'all' (3D shows every level stacked)
   background: '#f8fafc',
   showLabels: true,      // room name labels
-  colors: { wall: '#f1f5f9', room: '#dbe3ec', marker: '#6366f1', point: '#f97316' },
+  colors: { wall: '#f1f5f9', room: '#dbe3ec', marker: '#6366f1', point: '#f97316', model: '#eef1f5' },
+  assets,                // ModelAsset[]: 3D models for markers with `model` (see assets.md)
 });
 ```
 
@@ -28,6 +29,11 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `setLevel(id \| 'all')` / `getLevel()` | Choose which levels are visible. |
 | `setShowLabels(boolean)` | Toggle the plan's labels, which are the room names. Point layer labels are separate (`showLabels` on the layer). |
 | `setUnderlay({ url, x, y, width, height, opacity? } \| null, levelId?)` | Show a reference image on a level's floor, under the rooms (default: first level). Kept across `setPlan`. |
+| `setMovableMarkers(boolean)` | Let the user drag markers and their 3D models across the floor (also the `movableMarkers` option; snaps to `moveGrid`, default 0.25 m, Alt bypasses). The viewer moves the marker live and emits `markermove` on drop; update your plan (e.g. `editor.updateEntity`) and `setPlan`. A press without movement is a normal `click`. |
+| `clientToPlan(clientX, clientY)` | The `{ levelId, position }` under viewport coordinates (room floor under the pointer, else the lowest shown level's floor plane), e.g. for a `drop` event. Null outside the viewer. |
+| `setGhost({ levelId, position, size, rotation?, color? } \| null)` | A translucent placement box, e.g. where a dragged asset would land. |
+| `setShowModels(boolean)` / `getShowModels()` | Show or hide markers' 3D models (also the `showModels` option). Models are always drawn decolorized; `marker.color` is their accent. |
+| `setAssets(assets)` / `getAssets()` | The 3D models markers can show (`marker.model`). Rebuilds the scene; each GLB loads once and is shared. See [3D model assets](assets.md). |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
 | `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. Replacing a points or heatmap layer with the same type updates it in place (see [Live updates](#live-updates)). |
 | `updateLayer(id, patch)` | Merge `patch` into an existing layer and apply it like `setLayer`, e.g. `{ points }` or `{ showLabels: false }`. Returns false if there is no such layer. |
@@ -43,6 +49,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 
 ```ts
 viewer.on('click', ({ target, point, originalEvent }) => { ... });
+viewer.on('markermove', ({ id, levelId, position }) => editor.updateEntity({ kind: 'marker', id, levelId }, { position })); // movableMarkers only
 viewer.on('hover', ({ target }) => { ... });      // fires only when the hovered target changes
 viewer.on('modechange', (mode) => { ... });
 viewer.on('levelchange', (level) => { ... });

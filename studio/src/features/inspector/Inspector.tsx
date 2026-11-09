@@ -11,10 +11,12 @@ import {
 import { useId, type ComponentProps, type ReactNode } from 'react';
 
 import { Panel } from '@/components/Panel';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { VespeneLabsMark } from '@/components/VespeneLabsMark';
 import { useStudio } from '@/features/studio/studio-context';
+import { ASSETS } from '@/lib/assets';
 
 /**
  * An input that commits on the native `change` event (blur, Enter, closing a color picker),
@@ -150,7 +152,8 @@ export function Inspector() {
       );
     } else {
       const marker = entity as Marker;
-      title = 'Marker';
+      const asset = marker.model ? ASSETS.find((a) => a.id === marker.model) : undefined;
+      title = marker.model ? '3D model' : 'Marker';
       body = (
         <>
           <Field label="Name">{(id) => <CommitInput id={id} value={marker.name} onCommit={(v) => update(selection, { name: v })} />}</Field>
@@ -164,17 +167,78 @@ export function Inspector() {
               />
             )}
           </Field>
-          <Field label="Color">
+          <Field label={marker.model ? 'Accent color' : 'Color'}>
             {(id) => (
-              <CommitInput
-                id={id}
-                type="color"
-                className="p-1"
-                value={marker.color ?? '#7c3aed'}
-                onCommit={(v) => update(selection, { color: v })}
-              />
+              <div className="flex items-center gap-2">
+                <CommitInput
+                  id={id}
+                  type="color"
+                  className="p-1"
+                  value={marker.color ?? (marker.model ? '#14b8a6' : '#7c3aed')}
+                  onCommit={(v) => update(selection, { color: v })}
+                />
+                {marker.model && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!marker.color}
+                    aria-label="Remove accent color"
+                    onClick={() => update(selection, { color: undefined })}
+                  >
+                    None
+                  </Button>
+                )}
+              </div>
             )}
           </Field>
+          {marker.model && !marker.color && (
+            <p className="-mt-2 text-xs text-muted-foreground">No accent: the model is drawn in white clay. An accent colors its accent parts (pipes, cylinders…), or the whole model if it has none.</p>
+          )}
+          {marker.model && (
+            <>
+              <ReadOnly label="Model" value={asset ? `${asset.name} (${asset.category})` : `${marker.model} (not in the library)`} />
+              <Field label="Rotation (°, Q / E)">
+                {(id) => (
+                  <CommitInput
+                    id={id}
+                    type="number"
+                    step={15}
+                    value={marker.rotation ?? 0}
+                    onCommit={(v) => Number.isFinite(Number(v)) && update(selection, { rotation: ((Number(v) % 360) + 360) % 360 })}
+                  />
+                )}
+              </Field>
+              <Field label="Scale">
+                {(id) => (
+                  <CommitInput
+                    id={id}
+                    type="number"
+                    step={0.1}
+                    min={0.1}
+                    value={marker.scale ?? 1}
+                    onCommit={(v) => positive(v) && update(selection, { scale: Number(v) === 1 ? undefined : Number(v) })}
+                  />
+                )}
+              </Field>
+              <Field label="Height above floor (m, PgUp / PgDn)">
+                {(id) => (
+                  <CommitInput
+                    id={id}
+                    type="number"
+                    step={0.05}
+                    value={marker.elevation ?? 0}
+                    onCommit={(v) => Number.isFinite(Number(v)) && update(selection, { elevation: Number(v) === 0 ? undefined : Number(v) })}
+                  />
+                )}
+              </Field>
+              {asset && (
+                <ReadOnly
+                  label="Size"
+                  value={`${(asset.size.width * (marker.scale ?? 1)).toFixed(2)} × ${(asset.size.depth * (marker.scale ?? 1)).toFixed(2)} × ${(asset.size.height * (marker.scale ?? 1)).toFixed(2)} m`}
+                />
+              )}
+            </>
+          )}
         </>
       );
     }

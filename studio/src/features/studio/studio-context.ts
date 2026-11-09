@@ -10,6 +10,8 @@ export interface ViewSettings {
   labels: boolean;
   occupancy: boolean;
   sensors: boolean;
+  /** Show markers' 3D models (assets) in the viewer. */
+  models: boolean;
 }
 
 export interface StudioValue {

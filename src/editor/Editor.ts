@@ -2,6 +2,7 @@ import { Emitter } from '../core/emitter';
 import { POINT_GLYPHS, pointShape, type PointShape } from '../core/shapes';
 import { centerDuration, easeOutCubic, type CenterOnOptions, type CenterOnTarget } from '../core/motion';
 import { History } from '../core/history';
+import { indexAssets, markerFootprint, type ModelAsset } from '../model/assets';
 import {
   constrainAngle,
   distance,
@@ -58,6 +59,12 @@ export interface OverlayPoint {
   draggable?: boolean;
 }
 
+/**
+ * Properties for markers placed with the marker tool (see `setMarkerTemplate`), e.g. a 3D model
+ * to place: `{ name: 'Desk', kind: 'desk', model: 'kenney/furniture/desk' }`.
+ */
+export type MarkerTemplate = Partial<Pick<Marker, 'name' | 'kind' | 'color' | 'model' | 'rotation' | 'scale' | 'data'>>;
+
 /** `overlaypointmove`: a drag ended with the point at `position` (plan meters, snapped like markers). */
 export interface OverlayPointMove {
   id: string;
@@ -85,6 +92,8 @@ export interface EditorOptions {
   readOnly?: boolean;
   /** Host-managed points drawn on top (see `setOverlayPoints`). */
   overlayPoints?: OverlayPoint[];
+  /** 3D models that markers can show; the editor draws their footprints. See `setAssets`. */
+  assets?: readonly ModelAsset[];
 }
 
 export interface EditorEvents {
@@ -98,6 +107,8 @@ export interface EditorEvents {
   overlaypointmove: OverlayPointMove;
   /** The selected overlay point changed (null: none). Independent of `selectionchange`. */
   overlaypointselect: string | null;
+  /** The marker template changed (`setMarkerTemplate`, Q/E while placing, Escape). */
+  templatechange: MarkerTemplate | null;
 }
 
 type EntityPatch = Partial<Omit<Wall, 'id'>> | Partial<Omit<Room, 'id'>> | Partial<Omit<Marker, 'id'>>;
@@ -116,6 +127,8 @@ const HIT_PX = 6;
 const SNAP_PX = 10;
 /** Overlay point radius and hit tolerance in screen pixels. */
 const OVERLAY_PX = 7;
+/** Rotation step (degrees) of the Q/E keys; Shift: 90°. */
+const ROTATE_STEP = 15;
 const MIN_SCALE = 4;
 const MAX_SCALE = 400;
 
@@ -152,6 +165,8 @@ export class FloorplanEditor {
   private readOnly: boolean;
   private overlayPoints: OverlayPoint[] = [];
   private overlaySelection: string | null = null;
+  private assets = new Map<string, ModelAsset>();
+  private markerTemplate: MarkerTemplate | null = null;
   /** rAF id of a running `centerOn` animation. */
   private viewAnimation: number | null = null;
 
@@ -165,6 +180,7 @@ export class FloorplanEditor {
     this.grid = options.grid ?? 0.25;
     this.snapEnabled = options.snap ?? true;
     this.wallThickness = options.wallThickness ?? 0.15;
+    this.assets = indexAssets(options.assets ?? []);
 
     this.element = document.createElement('div');
     this.element.className = 'vl-editor';
@@ -265,6 +281,65 @@ export class FloorplanEditor {
     }
     this.ensureAllowedTool();
     this.render();
+  }
+
+  /**
+   * Set the 3D models that markers can show. Markers whose `model` matches an asset id are drawn
+   * as the asset's footprint (scaled and rotated like the marker), with a tick on the front edge.
+   */
+  setAssets(assets: readonly ModelAsset[]): void {
+    this.assets = indexAssets(assets);
+    this.render();
+  }
+
+  getAssets(): ModelAsset[] {
+    return [...this.assets.values()];
+  }
+
+  /**
+   * Properties for the next markers placed with the marker tool (null: plain markers named
+   * "Marker N"). With a `model`, the marker tool previews the footprint under the cursor and Q/E
+   * rotate it. A template `name` is numbered like "Desk 3". Escape in the marker tool clears the
+   * template and switches to select.
+   */
+  setMarkerTemplate(template: MarkerTemplate | null): void {
+    this.markerTemplate = template ? structuredClone(template) : null;
+    this.render();
+    this.events.emit('templatechange', this.getMarkerTemplate());
+  }
+
+  getMarkerTemplate(): MarkerTemplate | null {
+    return this.markerTemplate ? structuredClone(this.markerTemplate) : null;
+  }
+
+  /**
+   * Add a marker from a template at `position` on a level (e.g. a 3D model dropped from an asset
+   * library), as one undoable step, and select it. A template `name` is numbered like the marker
+   * tool's ("Desk 3"). Returns a copy of the new marker, or null for an unknown level or in
+   * read-only mode.
+   */
+  addMarker(levelId: string, template: MarkerTemplate, position: Point): Marker | null {
+    const level = getLevel(this.plan, levelId);
+    if (!level || this.readOnly) return null;
+    const marker = this.newMarker(level, template, { ...position });
+    this.mutate(() => level.markers.push(marker));
+    if (levelId !== this.levelId) this.setActiveLevel(levelId);
+    this.select({ kind: 'marker', id: marker.id, levelId });
+    return structuredClone(marker);
+  }
+
+  /**
+   * Rotate the selected marker by `degrees` (clockwise in plan view), as one undoable change.
+   * Returns false when no marker is selected or the editor is read-only.
+   */
+  rotateSelection(degrees: number): boolean {
+    const sel = this.selection;
+    const marker = sel?.kind === 'marker' && !this.readOnly ? (findEntity(this.plan, sel) as Marker | undefined) : undefined;
+    if (!marker) return false;
+    this.mutate(() => {
+      marker.rotation = normalizeDegrees((marker.rotation ?? 0) + degrees);
+    });
+    return true;
   }
 
   /** Replace the host-managed overlay points (no undo history, no `change` event). */
@@ -618,6 +693,23 @@ export class FloorplanEditor {
     return null;
   }
 
+  private newMarker(level: Level, template: MarkerTemplate, position: Point): Marker {
+    const { name, ...rest } = structuredClone(template);
+    const base = name || 'Marker';
+    return {
+      id: createId('marker'),
+      ...rest,
+      name: name ? `${base} ${level.markers.filter((m) => numberedAfter(m.name, base)).length + 1}` : `Marker ${level.markers.length + 1}`,
+      position,
+    };
+  }
+
+  /** Plan outline of a marker that shows a known 3D model, else null. */
+  private footprint(marker: Marker): Point[] | null {
+    const asset = marker.model ? this.assets.get(marker.model) : undefined;
+    return asset ? markerFootprint(marker, asset) : null;
+  }
+
   private hitTest(p: Point): { ref: EntityRef; handle?: number } | null {
     const level = this.getActiveLevel();
     const tol = HIT_PX / this.view.scale;
@@ -632,7 +724,11 @@ export class FloorplanEditor {
       }
     }
     for (const m of [...level.markers].reverse()) {
-      if (distance(p, m.position) <= 0.2 + tol) return { ref: ref('marker', m.id) };
+      const footprint = this.footprint(m);
+      const hit = footprint
+        ? pointInPolygon(p, footprint) || footprint.some((q, i) => distanceToSegment(p, q, footprint[(i + 1) % 4]!) <= tol)
+        : distance(p, m.position) <= 0.2 + tol;
+      if (hit) return { ref: ref('marker', m.id) };
     }
     for (const w of [...level.walls].reverse()) {
       if (distanceToSegment(p, w.start, w.end) <= w.thickness / 2 + tol) return { ref: ref('wall', w.id) };
@@ -699,11 +795,7 @@ export class FloorplanEditor {
         return;
       case 'marker': {
         const level = this.getActiveLevel();
-        const marker: Marker = {
-          id: createId('marker'),
-          name: `Marker ${level.markers.length + 1}`,
-          position: this.snap(raw, event).point,
-        };
+        const marker = this.newMarker(level, this.markerTemplate ?? {}, this.snap(raw, event).point);
         this.mutate(() => level.markers.push(marker));
         return;
       }
@@ -845,6 +937,9 @@ export class FloorplanEditor {
       if (this.draft) {
         this.draft = null;
         this.render();
+      } else if (this.tool === 'marker' && this.markerTemplate) {
+        this.setMarkerTemplate(null);
+        this.setTool('select');
       } else {
         this.select(null);
         this.selectOverlayPoint(null);
@@ -856,6 +951,13 @@ export class FloorplanEditor {
       this.deleteSelection();
     } else if (key === 'f') {
       this.fitView();
+    } else if (key === 'q' || key === 'e') {
+      const step = (event.shiftKey ? 90 : ROTATE_STEP) * (key === 'q' ? -1 : 1);
+      if (this.tool === 'marker' && this.markerTemplate?.model) {
+        this.setMarkerTemplate({ ...this.markerTemplate, rotation: normalizeDegrees((this.markerTemplate.rotation ?? 0) + step) });
+      } else {
+        this.rotateSelection(step);
+      }
     } else if (toolKeys[key]) {
       this.setTool(toolKeys[key]);
     }
@@ -886,6 +988,12 @@ export class FloorplanEditor {
       }, w);
     }
 
+    // 3D model footprints lie on the floor: under walls and labels, so room names stay readable.
+    for (const marker of level.markers) {
+      const footprint = this.footprint(marker);
+      if (footprint) this.renderFootprint(footprint, cls('vl-editor__asset', isSel('marker', marker.id)), marker.color);
+    }
+
     for (const wall of level.walls) {
       if (isSel('wall', wall.id)) {
         svg('line', { ...lineAttrs(wall.start, wall.end), 'stroke-width': wall.thickness + 6 * px, class: 'vl-editor__wall-selection' }, w);
@@ -902,6 +1010,7 @@ export class FloorplanEditor {
     }
 
     for (const marker of level.markers) {
+      if (this.footprint(marker)) continue; // drawn under the walls, above
       svg('circle', {
         cx: marker.position.x,
         cy: marker.position.y,
@@ -923,6 +1032,17 @@ export class FloorplanEditor {
 
     this.renderOverlay(px);
     this.renderDraft(px);
+  }
+
+  /** A model footprint, with a tick marking its front edge (the model's +z side, plan +y at 0°). */
+  private renderFootprint(points: Point[], className: string, fill?: string): void {
+    const g = svg('g', { class: className }, this.world);
+    svg('polygon', { points: pointsAttr(points), fill, class: 'vl-editor__asset-body' }, g);
+    const [, , c, d] = points as [Point, Point, Point, Point];
+    const mid = { x: (c.x + d.x) / 2, y: (c.y + d.y) / 2 };
+    const center = { x: (points[0]!.x + c.x) / 2, y: (points[0]!.y + c.y) / 2 };
+    const inward = { x: mid.x + (center.x - mid.x) * 0.25, y: mid.y + (center.y - mid.y) * 0.25 };
+    svg('line', { ...lineAttrs(mid, inward), class: 'vl-editor__asset-front' }, g);
   }
 
   /** Host-managed overlay points on the active level, at a fixed screen size, above the plan. */
@@ -971,6 +1091,12 @@ export class FloorplanEditor {
       }
     }
 
+    const asset = this.tool === 'marker' && this.markerTemplate?.model ? this.assets.get(this.markerTemplate.model) : undefined;
+    if (this.cursor && asset) {
+      const ghost: Marker = { id: '', name: '', ...this.markerTemplate, position: this.cursor.point };
+      this.renderFootprint(markerFootprint(ghost, asset), 'vl-editor__asset is-ghost', ghost.color);
+    }
+
     if (this.cursor) {
       svg('circle', {
         cx: this.cursor.point.x,
@@ -1008,6 +1134,16 @@ export class FloorplanEditor {
 
 function cls(base: string, selected: boolean): string {
   return selected ? `${base} is-selected` : base;
+}
+
+/** True for names like "Desk 3" when `base` is "Desk". */
+function numberedAfter(name: string, base: string): boolean {
+  return name.startsWith(`${base} `) && /^\d+$/.test(name.slice(base.length + 1));
+}
+
+function normalizeDegrees(degrees: number): number {
+  const d = degrees % 360;
+  return d < 0 ? d + 360 : d;
 }
 
 function clamp(v: number, min: number, max: number): number {

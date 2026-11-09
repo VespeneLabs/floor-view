@@ -7,6 +7,7 @@
 export type * from '../protocol';
 export { ARCHITECT_SYSTEM, ARCHITECT_TOOL_DEFINITIONS } from './agent';
 export type { ArchitectToolDefinition } from './agent';
+export { formatAssetCatalog } from './catalog';
 export { ArchitectRequestError, DEFAULT_ARCHITECT_LIMITS, parseArchitectRequest, runArchitectTurn } from './run';
 export type { ArchitectLimits, ArchitectModel, ArchitectStreamOptions, ArchitectTurnInput, ArchitectUsage, RunArchitectTurnOptions } from './run';
 export { createArchitectMiddleware } from './middleware';

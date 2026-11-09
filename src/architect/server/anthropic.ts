@@ -73,7 +73,14 @@ export function createAnthropicArchitectModel(options: AnthropicArchitectModelOp
           {
             model: options.model ?? DEFAULT_ANTHROPIC_ARCHITECT_MODEL,
             max_tokens: options.maxTokens ?? 64000,
-            system: input.system.map((text) => ({ type: 'text' as const, text })),
+            // An explicit breakpoint after the last system block (agent prompt, host guidance, asset
+            // catalog) lets new conversations reuse the cached tools + system prefix; the top-level
+            // automatic breakpoint below caches the growing conversation.
+            system: input.system.map((text, i) => ({
+              type: 'text' as const,
+              text,
+              ...(i === input.system.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+            })),
             tools: input.tools.map((tool) => ({
               name: tool.name,
               description: tool.description,
@@ -84,7 +91,7 @@ export function createAnthropicArchitectModel(options: AnthropicArchitectModelOp
             messages: input.messages as Anthropic.Beta.BetaMessageParam[],
             thinking: { type: 'adaptive', display: 'summarized' },
             output_config: { effort: options.effort ?? 'high' },
-            // Caches the prefix (system, tools, the scan and earlier turns) across turns.
+            // Caches the conversation prefix (the scan and earlier turns) across turns.
             cache_control: { type: 'ephemeral' },
             ...(fallbacks ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
           },

@@ -43,6 +43,20 @@ export interface Marker {
   /** Free-form category, e.g. "desk", "sensor", "exit". */
   kind?: string;
   color?: string;
+  /**
+   * Id of a 3D model (`ModelAsset.id`) to show instead of the default marker glyph. Resolved
+   * against the assets given to the viewer/editor; unknown ids fall back to the glyph.
+   */
+  model?: string;
+  /** Rotation around the vertical axis in degrees, clockwise in plan view. Default 0. */
+  rotation?: number;
+  /** Uniform scale applied to the model. Default 1. */
+  scale?: number;
+  /**
+   * Height above the level floor in meters, e.g. a model on a mezzanine, shelf or table top, or a
+   * wall-mounted model moved up or down. Added to the model's own height. Default 0.
+   */
+  elevation?: number;
   data?: Metadata;
 }
 

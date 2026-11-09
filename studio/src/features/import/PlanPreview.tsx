@@ -6,6 +6,7 @@ import type { Proposal } from './useArchitect';
 import { Label } from '@/components/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useViewerTheme } from '@/features/viewer/useViewerTheme';
+import { ASSETS } from '@/lib/assets';
 
 /** The scan alone until the first proposal arrives, then the proposal over the scan (2D or 3D). */
 export function PlanPreview({ scan, proposal }: { scan: Scan; proposal: Proposal | null }) {
@@ -20,7 +21,7 @@ export function PlanPreview({ scan, proposal }: { scan: Scan; proposal: Proposal
   // Create the viewer once the first proposal exists; later proposals update it below.
   useEffect(() => {
     if (!container.current || !hasProposal) return;
-    const instance = new FloorplanViewer(container.current, { mode: '2d', level: 'all' });
+    const instance = new FloorplanViewer(container.current, { mode: '2d', level: 'all', assets: ASSETS });
     setViewer(instance);
     return () => {
       setViewer(null);

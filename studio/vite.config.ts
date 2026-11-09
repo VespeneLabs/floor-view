@@ -46,6 +46,8 @@ export default defineConfig(({ mode }) => {
       // Keep in sync with `paths` in studio/tsconfig.json (also read by the shadcn CLI).
       alias: [...sourceAliases(resolvePath('../src')), { find: '@', replacement: resolvePath('./src') }],
     },
+    // The library's model assets (assets/kenney → /kenney/…), served and copied as static files.
+    publicDir: resolvePath('../assets'),
     build: { outDir: '../dist-studio', emptyOutDir: true },
   };
 });

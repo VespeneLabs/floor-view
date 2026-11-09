@@ -3,18 +3,21 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Emitter } from '../core/emitter';
 import { centerDuration, easeOutCubic, reducedMotionQuery, type CenterOnOptions, type CenterOnTarget } from '../core/motion';
+import { indexAssets, type ModelAsset } from '../model/assets';
 import { clonePlan } from '../model/plan';
 import type { FloorPlan, Level, Point, Underlay } from '../model/types';
 import { toThreeColor } from './color';
 import { buildHighlight, resolveFocus, type FocusOptions, type FocusTarget } from './focus';
 import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type HeatmapGrid } from './heatmap';
 import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
+import { ModelCache, type ModelStyle } from './models';
 import { PointLayerView } from './pointLayer';
 import {
   buildPlan,
   DEFAULT_SCENE_COLORS,
   disposeObject,
   type BuiltLevel,
+  type ModelSlot,
   type PickInfo,
   type SceneColors,
 } from './sceneBuilder';
@@ -30,6 +33,33 @@ export interface ViewerOptions {
   background?: string;
   showLabels?: boolean;
   colors?: Partial<SceneColors>;
+  /** 3D models that markers can show (`marker.model`). See `setAssets`. */
+  assets?: readonly ModelAsset[];
+  /** Show markers' 3D models (default true). See `setShowModels`. */
+  showModels?: boolean;
+  /** Let the user drag markers (and their 3D models) across the floor. See `setMovableMarkers`. */
+  movableMarkers?: boolean;
+  /** Grid (m) that dragged markers snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
+  moveGrid?: number;
+}
+
+/** `markermove`: a marker was dragged in the viewer and dropped at `position` (plan meters, snapped). */
+export interface MarkerMoveEvent {
+  id: string;
+  levelId: string;
+  position: Point;
+}
+
+/**
+ * A translucent box shown on a level, e.g. where a dragged asset would land (`setGhost`). Sizes in
+ * meters (`width` along plan x, `depth` along plan y); `rotation` in degrees clockwise.
+ */
+export interface Ghost {
+  levelId: string;
+  position: Point;
+  size: { width: number; depth: number; height: number };
+  rotation?: number;
+  color?: string;
 }
 
 export interface PickEvent {
@@ -42,6 +72,8 @@ export interface PickEvent {
 
 export interface ViewerEvents {
   click: PickEvent;
+  /** A marker was dragged and dropped (only with `movableMarkers`). Update the plan, e.g. `editor.updateEntity`. */
+  markermove: MarkerMoveEvent;
   /** Fired when the hovered target changes (including to null). */
   hover: PickEvent;
   modechange: ViewMode;
@@ -83,6 +115,22 @@ export class FloorplanViewer {
   private readonly resizeObserver: ResizeObserver;
   private readonly colors: SceneColors;
   private readonly reducedMotion = reducedMotionQuery();
+  private readonly models = new ModelCache();
+  private assets = new Map<string, ModelAsset>();
+  private showModels: boolean;
+  private movableMarkers: boolean;
+  private moveGrid: number;
+  private markerDrag: {
+    id: string;
+    levelId: string;
+    object: THREE.Object3D;
+    elevation: number;
+    offset: { x: number; z: number };
+    original: { x: number; z: number };
+    moved: boolean;
+    pointerId: number;
+  } | null = null;
+  private ghost: { spec: Ghost; mesh: THREE.Mesh } | null = null;
 
   private controls: OrbitControls;
   private plan: FloorPlan | null = null;
@@ -110,6 +158,10 @@ export class FloorplanViewer {
     this.level = options.level ?? 'all';
     this.showLabels = options.showLabels ?? true;
     this.colors = { ...DEFAULT_SCENE_COLORS, ...options.colors };
+    this.assets = indexAssets(options.assets ?? []);
+    this.showModels = options.showModels ?? true;
+    this.movableMarkers = options.movableMarkers ?? false;
+    this.moveGrid = options.moveGrid ?? 0.25;
 
     this.element = document.createElement('div');
     this.element.className = 'vl-viewer';
@@ -138,7 +190,8 @@ export class FloorplanViewer {
     this.controls = this.createControls();
 
     const canvas = this.renderer.domElement;
-    canvas.addEventListener('pointerdown', this.onPointerDown);
+    // Capture phase: runs before OrbitControls, so a marker drag can keep the camera still.
+    canvas.addEventListener('pointerdown', this.onPointerDown, { capture: true });
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointermove', this.onPointerMove);
     canvas.addEventListener('pointerleave', this.onPointerLeave);
@@ -179,7 +232,7 @@ export class FloorplanViewer {
     if (this.level !== 'all' && !this.plan.levels.some((l) => l.id === this.level)) {
       this.level = this.plan.levels[0]?.id ?? 'all';
     }
-    this.built = buildPlan(this.plan, this.colors);
+    this.built = buildPlan(this.plan, this.colors, this.assets);
     for (const b of this.built) {
       this.planGroup.add(b.group);
       for (const anchor of b.labelAnchors) {
@@ -195,10 +248,101 @@ export class FloorplanViewer {
     }
     for (const layer of this.layers) this.applyLayer(layer);
     this.attachUnderlay();
+    this.attachGhost();
     this.applyRoomColors();
     this.applyLevelVisibility();
     this.updateHighlight();
+    this.applyModelVisibility();
+    this.loadModels();
     if (fit ?? first) this.fitView();
+    this.requestRender();
+  }
+
+  /**
+   * Set the 3D models that markers can show: a marker whose `model` matches an asset id is drawn
+   * as that model (a box of the asset's size until it loads), others keep the default glyph.
+   * Models load once per URL and are shared by every marker using them. Rebuilds the plan.
+   */
+  setAssets(assets: readonly ModelAsset[]): void {
+    this.assets = indexAssets(assets);
+    if (this.plan) this.setPlan(this.plan, { fit: false });
+  }
+
+  getAssets(): ModelAsset[] {
+    return [...this.assets.values()];
+  }
+
+  /**
+   * Let the user drag markers and their 3D models across the floor (snapped to `moveGrid`; Alt
+   * bypasses it). The viewer moves the marker live and emits `markermove` on drop; it does not
+   * change its own plan, so update the source of truth (e.g. `editor.updateEntity`) and call
+   * `setPlan`. A drop without movement is a normal `click`.
+   */
+  setMovableMarkers(movable: boolean): void {
+    this.movableMarkers = movable;
+  }
+
+  /**
+   * The level and plan position under client (viewport) coordinates, e.g. for a `drop` event:
+   * the room floor under the pointer, else the floor plane of the lowest shown level. Null when
+   * the pointer is outside the viewer or misses the floor.
+   */
+  clientToPlan(clientX: number, clientY: number): { levelId: string; position: Point } | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+    this.setRay(clientX, clientY);
+    const rooms: THREE.Object3D[] = [];
+    for (const b of this.built) if (b.group.visible) rooms.push(...b.rooms.values());
+    const hit = this.raycaster.intersectObjects(rooms, false)[0];
+    if (hit) {
+      const pick = hit.object.userData.pick as PickInfo;
+      return { levelId: pick.levelId, position: { x: hit.point.x, y: hit.point.z } };
+    }
+    const lowest = this.built.filter((b) => b.group.visible).sort((a, b) => a.group.position.y - b.group.position.y)[0];
+    if (!lowest) return null;
+    const p = this.floorPoint(lowest.group.position.y);
+    return p ? { levelId: lowest.levelId, position: { x: p.x, y: p.z } } : null;
+  }
+
+  /** Show a translucent placement box (e.g. while an asset is dragged over the viewer), or remove it with null. */
+  setGhost(ghost: Ghost | null): void {
+    if (this.ghost) {
+      this.ghost.mesh.removeFromParent();
+      disposeObject(this.ghost.mesh);
+      this.ghost = null;
+    }
+    if (ghost) {
+      const { width, depth, height } = ghost.size;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.max(width, 0.05), Math.max(height, 0.05), Math.max(depth, 0.05)),
+        new THREE.MeshBasicMaterial({ color: toThreeColor(ghost.color ?? this.colors.marker), transparent: true, opacity: 0.35, depthWrite: false }),
+      );
+      mesh.position.set(ghost.position.x, Math.max(height, 0.05) / 2, ghost.position.y);
+      mesh.rotation.y = -THREE.MathUtils.degToRad(ghost.rotation ?? 0);
+      mesh.raycast = () => undefined;
+      this.ghost = { spec: structuredClone(ghost), mesh };
+      this.attachGhost();
+    }
+    this.requestRender();
+  }
+
+  getShowModels(): boolean {
+    return this.showModels;
+  }
+
+  /**
+   * Show or hide markers' 3D models (e.g. to see the bare plan). Hidden models can't be picked.
+   * Markers without a model keep their glyph.
+   */
+  setShowModels(show: boolean): void {
+    if (show === this.showModels) return;
+    this.showModels = show;
+    this.applyModelVisibility();
+    if (!show && this.hovered?.kind === 'marker') {
+      this.hovered = null;
+      this.setHover(null);
+      this.tooltip.hidden = true;
+    }
     this.requestRender();
   }
 
@@ -432,8 +576,10 @@ export class FloorplanViewer {
     this.resizeObserver.disconnect();
     this.controls.dispose();
     this.clearHighlight();
+    this.setGhost(null);
     this.removeUnderlay();
     this.clearPlan();
+    this.models.dispose();
     this.renderer.dispose();
     this.events.clear();
     this.element.remove();
@@ -531,6 +677,118 @@ export class FloorplanViewer {
     this.labelRenderer.render(this.scene, this.camera);
   }
 
+  /** Swap each model slot's placeholder for the loaded model (if the slot is still in the scene). */
+  private loadModels(): void {
+    for (const b of this.built) {
+      for (const slot of b.models) {
+        this.models.load(slot.asset.url, { mounted: slot.asset.mounted }).then(
+          (template) => this.fillSlot(b, slot, template),
+          () => undefined, // logged by the cache; the placeholder stays
+        );
+      }
+    }
+  }
+
+  private fillSlot(built: BuiltLevel, slot: ModelSlot, template: THREE.Object3D): void {
+    if (this.disposed || !this.built.includes(built) || !slot.placeholder) return;
+    const instance = this.models.instantiate(template, { kind: 'marker', id: slot.markerId, levelId: built.levelId }, this.modelStyle(slot));
+    instance.scale.setScalar(slot.scale);
+    if (this.hoveredMesh === slot.placeholder) this.setHover(null);
+    slot.placeholder.removeFromParent();
+    disposeObject(slot.placeholder);
+    slot.placeholder = null;
+    slot.slot.add(instance);
+    this.requestRender();
+  }
+
+  private modelStyle(slot: ModelSlot): ModelStyle {
+    return { clay: toThreeColor(this.colors.model), accent: slot.color ? toThreeColor(slot.color) : null };
+  }
+
+  private applyModelVisibility(): void {
+    for (const b of this.built) for (const slot of b.models) slot.slot.visible = this.showModels;
+  }
+
+  private attachGhost(): void {
+    if (!this.ghost) return;
+    this.built.find((b) => b.levelId === this.ghost?.spec.levelId)?.group.add(this.ghost.mesh);
+  }
+
+  private setRay(clientX: number, clientY: number): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+  }
+
+  /** Where the current ray meets the horizontal plane at world height `y`. */
+  private floorPoint(y: number): THREE.Vector3 | null {
+    return this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3());
+  }
+
+  /** Start dragging the marker under the pointer, if any. True when a drag started. */
+  private startMarkerDrag(event: PointerEvent): boolean {
+    const { target } = this.pick(event);
+    if (target?.kind !== 'marker') return false;
+    const built = this.built.find((b) => b.levelId === target.levelId);
+    const object = built?.markers.get(target.id);
+    if (!built || !object) return false;
+    const elevation = built.group.position.y;
+    const floor = this.floorPoint(elevation);
+    if (!floor) return false;
+    this.markerDrag = {
+      id: target.id,
+      levelId: target.levelId,
+      object,
+      elevation,
+      offset: { x: object.position.x - floor.x, z: object.position.z - floor.z },
+      original: { x: object.position.x, z: object.position.z },
+      moved: false,
+      pointerId: event.pointerId,
+    };
+    this.controls.enabled = false;
+    this.pan = null;
+    this.renderer.domElement.setPointerCapture(event.pointerId);
+    this.renderer.domElement.style.cursor = 'grabbing';
+    this.tooltip.hidden = true;
+    return true;
+  }
+
+  private updateMarkerDrag(event: PointerEvent): void {
+    const drag = this.markerDrag!;
+    this.setRay(event.clientX, event.clientY);
+    const floor = this.floorPoint(drag.elevation);
+    if (!floor) return;
+    let x = floor.x + drag.offset.x;
+    let z = floor.z + drag.offset.z;
+    if (this.moveGrid > 0 && !event.altKey) {
+      x = Math.round(x / this.moveGrid) * this.moveGrid;
+      z = Math.round(z / this.moveGrid) * this.moveGrid;
+    }
+    drag.moved ||= Math.abs(x - drag.original.x) > 1e-9 || Math.abs(z - drag.original.z) > 1e-9;
+    drag.object.position.x = x;
+    drag.object.position.z = z;
+    this.requestRender();
+  }
+
+  /** Finish a marker drag; with an event, emit `markermove` (moved) or a `click` (not moved). */
+  private endMarkerDrag(event: PointerEvent | null): void {
+    const drag = this.markerDrag;
+    if (!drag) return;
+    this.markerDrag = null;
+    this.controls.enabled = true;
+    const canvas = this.renderer.domElement;
+    if (canvas.hasPointerCapture(drag.pointerId)) canvas.releasePointerCapture(drag.pointerId);
+    canvas.style.cursor = '';
+    if (!event) return;
+    if (drag.moved) {
+      const position = { x: drag.object.position.x, y: drag.object.position.z };
+      this.events.emit('markermove', { id: drag.id, levelId: drag.levelId, position });
+    } else {
+      const { target, point } = this.pick(event);
+      this.events.emit('click', { target, point, originalEvent: event });
+    }
+  }
+
   private attachUnderlay(): void {
     if (!this.underlay) return;
     const target = this.built.find((b) => b.levelId === this.underlay?.levelId) ?? this.built[0];
@@ -547,7 +805,9 @@ export class FloorplanViewer {
   private clearPlan(): void {
     // The underlay outlives plan rebuilds: detach it before the level groups are disposed.
     this.underlay?.mesh.removeFromParent();
+    this.ghost?.mesh.removeFromParent();
     this.focusState?.mesh?.removeFromParent();
+    this.endMarkerDrag(null);
     for (const id of new Set([...this.pointViews.keys(), ...this.heatmaps.keys()])) this.removeLayerObjects(id);
     for (const b of this.built) {
       disposeObject(b.group);
@@ -736,13 +996,8 @@ export class FloorplanViewer {
     else this.tooltip.hidden = true;
   }
 
-  private pick(event: PointerEvent): { target: PickInfo | null; mesh: THREE.Mesh | null; point: Point | null } {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
+  private pick(event: { clientX: number; clientY: number }): { target: PickInfo | null; mesh: THREE.Mesh | null; point: Point | null } {
+    this.setRay(event.clientX, event.clientY);
 
     const candidates: THREE.Object3D[] = [];
     for (const b of this.built) {
@@ -770,8 +1025,17 @@ export class FloorplanViewer {
 
   private setHover(mesh: THREE.Mesh | null): void {
     const setEmissive = (m: THREE.Mesh | null, color: THREE.Color | number) => {
-      const mat = m?.material as THREE.MeshStandardMaterial | undefined;
-      if (mat?.emissive) mat.emissive.set(color);
+      // A part of a 3D model lights up the whole model.
+      let slot: THREE.Object3D | null = m;
+      while (slot && !slot.userData.modelSlot) slot = slot.parent;
+      const meshes: THREE.Mesh[] = [];
+      if (slot) slot.traverse((o) => void ((o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh)));
+      else if (m) meshes.push(m);
+      for (const target of meshes) {
+        for (const mat of Array.isArray(target.material) ? target.material : [target.material]) {
+          (mat as THREE.MeshStandardMaterial).emissive?.set(color);
+        }
+      }
     };
     setEmissive(this.hoveredMesh, 0x000000);
     setEmissive(mesh, HOVER_EMISSIVE);
@@ -781,9 +1045,17 @@ export class FloorplanViewer {
 
   private onPointerDown = (event: PointerEvent): void => {
     this.downAt = { x: event.clientX, y: event.clientY };
+    if (this.movableMarkers && event.button === 0 && !this.markerDrag && this.startMarkerDrag(event)) {
+      this.downAt = null;
+      event.stopImmediatePropagation(); // keep OrbitControls out of it
+    }
   };
 
   private onPointerUp = (event: PointerEvent): void => {
+    if (this.markerDrag) {
+      this.endMarkerDrag(event);
+      return;
+    }
     if (!this.downAt) return;
     const moved = Math.hypot(event.clientX - this.downAt.x, event.clientY - this.downAt.y);
     this.downAt = null;
@@ -793,13 +1065,18 @@ export class FloorplanViewer {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (this.markerDrag) {
+      this.updateMarkerDrag(event);
+      return;
+    }
     if (event.buttons !== 0) return; // dragging the camera
     const { target, mesh, point } = this.pick(event);
     const changed = target?.kind !== this.hovered?.kind || target?.id !== this.hovered?.id;
     if (changed) {
       this.hovered = target;
       this.setHover(target?.kind === 'wall' ? null : mesh);
-      this.renderer.domElement.style.cursor = target && target.kind !== 'wall' ? 'pointer' : '';
+      this.renderer.domElement.style.cursor =
+        target?.kind === 'marker' && this.movableMarkers ? 'grab' : target && target.kind !== 'wall' ? 'pointer' : '';
       this.events.emit('hover', { target, point, originalEvent: event });
     }
     const text = target ? this.tooltipFor(target) : null;

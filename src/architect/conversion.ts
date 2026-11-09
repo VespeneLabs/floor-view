@@ -1,5 +1,6 @@
 import {
   createId,
+  markerFootprint,
   distance,
   parsePlan,
   PLAN_FORMAT_VERSION,
@@ -8,6 +9,8 @@ import {
   polygonCentroid,
   type FloorPlan,
   type Level,
+  type Marker,
+  type ModelAsset,
   type Point,
   type Underlay,
 } from '../model/index';
@@ -23,6 +26,18 @@ export interface ImageSize {
   width: number;
   height: number;
 }
+
+/** What conversion needs to know about a 3D model (a `ModelAsset` or an `ArchitectAsset`). */
+export type ProposalAsset = Pick<ModelAsset, 'id' | 'size'>;
+
+export interface ConvertProposalOptions {
+  /** The models the assistant was offered. Markers may only use these ids. */
+  assets?: readonly ProposalAsset[];
+}
+
+/** Bounds for a model marker's `scale` (the prompt asks for 0.5-2). */
+const MIN_SCALE = 0.25;
+const MAX_SCALE = 4;
 
 export type ProposalConversion =
   | { ok: true; plan: FloorPlan; underlay: Underlay; summary: string; warnings: string[]; assumptions: string[] }
@@ -55,9 +70,10 @@ const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFin
 const str = (v: unknown, fallback = '') => (typeof v === 'string' ? v.trim() : fallback);
 const round = (v: number) => Math.round(v * 1000) / 1000;
 
-export function convertProposal(input: unknown, image: ImageSize): ProposalConversion {
+export function convertProposal(input: unknown, image: ImageSize, options: ConvertProposalOptions = {}): ProposalConversion {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const assets = new Map((options.assets ?? []).map((a) => [a.id, a]));
   if (!isObj(input)) return { ok: false, errors: ['The input must be an object.'] };
 
   const mpp = input.metersPerPixel;
@@ -123,17 +139,19 @@ export function convertProposal(input: unknown, image: ImageSize): ProposalConve
       level.rooms.push({ id: createId('room'), name, points, color: ROOM_COLORS[use] ?? ROOM_COLORS.other, data: { use } });
     });
 
+    let modelsOutside = 0;
     (Array.isArray(raw.markers) ? raw.markers : []).forEach((m: unknown, mi) => {
       if (!isObj(m) || !isNum(m.x) || !isNum(m.y)) return void errors.push(`${at}.markers[${mi}] needs name, kind, x and y.`);
       const kind = str(m.kind, 'other') || 'other';
-      level.markers.push({
-        id: createId('marker'),
-        name: str(m.name, kind) || kind,
-        kind,
-        position: toM(m.x, m.y),
-        ...(MARKER_COLORS[kind] ? { color: MARKER_COLORS[kind] } : {}),
-      });
+      const marker: Marker = { id: createId('marker'), name: str(m.name, kind) || kind, kind, position: toM(m.x, m.y) };
+      const model = modelFields(m, `${at}.markers[${mi}] ("${marker.name}")`, assets, errors);
+      if (model) {
+        Object.assign(marker, model.fields);
+        if (markerFootprint(marker, model.asset).some((p) => outside(p.x / mpp, p.y / mpp))) modelsOutside++;
+      } else if (MARKER_COLORS[kind]) marker.color = MARKER_COLORS[kind];
+      level.markers.push(marker);
     });
+    if (modelsOutside) warnings.push(`${level.name}: ${modelsOutside} 3D model(s) extend beyond the image; check their position and rotation.`);
 
     if (level.walls.length === 0 && level.rooms.length === 0) errors.push(`${at} ("${level.name}") has no walls and no rooms.`);
 
@@ -160,12 +178,57 @@ export function convertProposal(input: unknown, image: ImageSize): ProposalConve
   return { ok: true, plan, underlay, summary: summarize(plan, underlay, warnings), warnings, assumptions };
 }
 
+/**
+ * The validated `model`/`rotation`/`scale` of a proposed marker, or null for a plain marker (no
+ * model, or an invalid one: the problem is added to `errors`).
+ */
+function modelFields(
+  m: Obj,
+  at: string,
+  assets: ReadonlyMap<string, ProposalAsset>,
+  errors: string[],
+): { asset: ProposalAsset; fields: Pick<Marker, 'model' | 'rotation' | 'scale'> } | null {
+  if (m.model === undefined || m.model === null || m.model === '') return null;
+  if (typeof m.model !== 'string') {
+    errors.push(`${at}: model must be a catalog id (a string).`);
+    return null;
+  }
+  if (assets.size === 0) {
+    errors.push(`${at}: there is no asset catalog in this conversation, so leave out "model".`);
+    return null;
+  }
+  const asset = assets.get(m.model);
+  if (!asset) {
+    const tail = m.model.split('/').pop()!.toLowerCase();
+    const near = [...assets.keys()].filter((id) => id.toLowerCase().endsWith(`/${tail}`) || id.toLowerCase().includes(tail)).slice(0, 3);
+    errors.push(`${at}: unknown model "${m.model}". Use an id exactly as listed in the asset catalog${near.length ? ` (did you mean ${near.map((id) => `"${id}"`).join(', ')}?)` : ''}, or leave out "model".`);
+    return null;
+  }
+  let ok = true;
+  if (m.rotation !== undefined && m.rotation !== null && !isNum(m.rotation)) {
+    errors.push(`${at}: rotation must be a number of degrees.`);
+    ok = false;
+  }
+  if (m.scale !== undefined && m.scale !== null && (!isNum(m.scale) || m.scale < MIN_SCALE || m.scale > MAX_SCALE)) {
+    errors.push(`${at}: scale must be a number between ${MIN_SCALE} and ${MAX_SCALE} (usually 0.5 to 2), or left out.`);
+    ok = false;
+  }
+  if (!ok) return null;
+  const rotation = isNum(m.rotation) ? Math.round((((m.rotation % 360) + 360) % 360) * 10) / 10 : 0;
+  const scale = isNum(m.scale) ? Math.round(m.scale * 1000) / 1000 : 1;
+  return {
+    asset,
+    fields: { model: asset.id, ...(rotation && rotation !== 360 ? { rotation } : {}), ...(scale !== 1 ? { scale } : {}) },
+  };
+}
+
 function summarize(plan: FloorPlan, underlay: Underlay, warnings: string[]): string {
   const lines = [`The plan is now shown to the user. Drawing extent at this scale: ${underlay.width.toFixed(1)} × ${underlay.height.toFixed(1)} m.`];
   for (const level of plan.levels) {
     const area = level.rooms.reduce((sum, r) => sum + polygonArea(r.points), 0);
+    const models = level.markers.filter((m) => m.model).length;
     lines.push(
-      `${level.name}: ${level.walls.length} walls, ${level.rooms.length} rooms (${Math.round(area)} m² in total), ${level.markers.length} markers.`,
+      `${level.name}: ${level.walls.length} walls, ${level.rooms.length} rooms (${Math.round(area)} m² in total), ${level.markers.length} markers${models ? ` (${models} as 3D models)` : ''}.`,
     );
   }
   if (warnings.length) lines.push('Warnings:', ...warnings.map((w) => `- ${w}`));

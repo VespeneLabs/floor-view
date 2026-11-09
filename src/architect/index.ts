@@ -21,6 +21,6 @@ export type {
   PreviewRenderer,
 } from './controller';
 export { convertProposal } from './conversion';
-export type { ImageSize, ProposalConversion } from './conversion';
+export type { ConvertProposalOptions, ImageSize, ProposalAsset, ProposalConversion } from './conversion';
 export { ACCEPTED_SCAN_TYPES, prepareScan, renderProposalOverlay } from './scan';
 export type { Scan } from './scan';

@@ -1,12 +1,18 @@
-import type { ArchitectContentBlock, ArchitectEvent, ArchitectMessage, ArchitectRequest } from '../protocol';
+import type { ArchitectAsset, ArchitectContentBlock, ArchitectEvent, ArchitectMessage, ArchitectRequest } from '../protocol';
 import { ARCHITECT_SYSTEM, ARCHITECT_TOOL_DEFINITIONS, type ArchitectToolDefinition } from './agent';
+import { formatAssetCatalog } from './catalog';
 
 /** What a model adapter receives for one turn. */
 export interface ArchitectTurnInput {
-  /** System prompt parts, in order: the agent's prompt, then the host's `extraInstructions`. */
+  /**
+   * System prompt parts, in order: the agent's prompt, the host's `extraInstructions`, then the
+   * asset catalog (`formatAssetCatalog`). All stable across turns: cache up to the last part.
+   */
   system: string[];
   tools: ArchitectToolDefinition[];
   messages: ArchitectMessage[];
+  /** The models the assistant may place (already in `system` as text), e.g. for a search tool. */
+  assets: ArchitectAsset[];
 }
 
 /** Token usage of one model turn (server side only; never sent to the browser). */
@@ -45,6 +51,10 @@ export interface ArchitectLimits {
   maxImages: number;
   /** Total characters of text and tool input/result text. Default 2,000,000. */
   maxTextChars: number;
+  /** Models in the request's asset catalog. Default 2000. */
+  maxAssets: number;
+  /** Total characters of the asset catalog's text fields (about 4 per token). Default 400,000. */
+  maxCatalogChars: number;
 }
 
 export const DEFAULT_ARCHITECT_LIMITS: ArchitectLimits = {
@@ -52,6 +62,8 @@ export const DEFAULT_ARCHITECT_LIMITS: ArchitectLimits = {
   maxImageBytes: 20 * 1024 * 1024,
   maxImages: 40,
   maxTextChars: 2_000_000,
+  maxAssets: 2000,
+  maxCatalogChars: 400_000,
 };
 
 /** An invalid or oversized request. `status` is the HTTP status to answer with (400 or 413). */
@@ -85,6 +97,40 @@ function measure(blocks: unknown, totals: { imageBytes: number; images: number; 
   }
 }
 
+const ASSET_ID = /^[^\s<>|]{1,200}$/;
+const isSize = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1000;
+
+/** Validates the optional asset catalog of a request (shape, field lengths, sizes, count). */
+function parseAssets(raw: unknown, max: ArchitectLimits): ArchitectAsset[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new ArchitectRequestError('assets must be an array.', 400);
+  if (raw.length > max.maxAssets) throw new ArchitectRequestError(`Too many assets (${raw.length}, limit ${max.maxAssets}).`, 413);
+  const seen = new Set<string>();
+  let chars = 0;
+  const assets = raw.map((a: unknown, i): ArchitectAsset => {
+    const bad = (why: string) => new ArchitectRequestError(`assets[${i}] ${why}`, 400);
+    if (!isObj(a)) throw bad('must be an object.');
+    const { id, name, category, description, size } = a;
+    if (typeof id !== 'string' || !ASSET_ID.test(id)) throw bad('needs an id of 1-200 characters without spaces, "<", ">" or "|".');
+    if (seen.has(id)) throw bad(`repeats the id "${id}".`);
+    seen.add(id);
+    if (typeof name !== 'string' || name.length > 200) throw bad('needs a name of at most 200 characters.');
+    if (category !== undefined && (typeof category !== 'string' || category.length > 100)) throw bad('category must be a string of at most 100 characters.');
+    if (description !== undefined && (typeof description !== 'string' || description.length > 1000)) throw bad('description must be a string of at most 1000 characters.');
+    if (!isObj(size) || !isSize(size.width) || !isSize(size.depth) || !isSize(size.height)) throw bad('needs size { width, depth, height } in meters.');
+    chars += id.length + name.length + (category?.length ?? 0) + (description?.length ?? 0) + 30;
+    return {
+      id,
+      name,
+      ...(category ? { category } : {}),
+      size: { width: size.width as number, depth: size.depth as number, height: size.height as number },
+      ...(description ? { description } : {}),
+    };
+  });
+  if (chars > max.maxCatalogChars) throw new ArchitectRequestError(`The asset catalog is too large (${chars} characters, limit ${max.maxCatalogChars}).`, 413);
+  return assets;
+}
+
 /**
  * Validates a request body (already JSON-parsed) against the protocol and the limits. Throws
  * `ArchitectRequestError` with a 400 or 413 status. Call it before starting to stream so the
@@ -116,12 +162,18 @@ export function parseArchitectRequest(body: unknown, limits: Partial<ArchitectLi
     throw new ArchitectRequestError(`Images are too large (${(totals.imageBytes / 1048576).toFixed(1)} MB, limit ${(max.maxImageBytes / 1048576).toFixed(1)} MB).`, 413);
   }
   if (totals.textChars > max.maxTextChars) throw new ArchitectRequestError('The conversation is too long. Start a new one.', 413);
-  return { messages: messages as ArchitectMessage[] };
+  const assets = parseAssets(body.assets, max);
+  return { messages: messages as ArchitectMessage[], ...(assets.length ? { assets } : {}) };
 }
 
 export interface RunArchitectTurnOptions {
   /** Host-specific guidance appended to the agent's system prompt (keep it stable: it is cached). */
   extraInstructions?: string;
+  /**
+   * The models the assistant may place, chosen by the server. When set, the request's `assets`
+   * are ignored (use it when the browser must not decide what goes into the prompt).
+   */
+  assets?: ArchitectAsset[];
   /** Abort the turn (e.g. when the client disconnects). */
   signal?: AbortSignal;
   limits?: Partial<ArchitectLimits>;
@@ -155,10 +207,13 @@ export async function* runArchitectTurn(
   }
   const signal = options.signal ?? new AbortController().signal;
   const extra = options.extraInstructions?.trim();
+  const assets = options.assets ?? parsed.assets ?? [];
+  const catalog = formatAssetCatalog(assets);
   const input: ArchitectTurnInput = {
-    system: extra ? [ARCHITECT_SYSTEM, extra] : [ARCHITECT_SYSTEM],
+    system: [ARCHITECT_SYSTEM, ...(extra ? [extra] : []), ...(catalog ? [catalog] : [])],
     tools: ARCHITECT_TOOL_DEFINITIONS,
     messages: parsed.messages,
+    assets,
   };
   try {
     for await (const event of model.streamTurn(input, { signal, onUsage: options.onUsage })) {
