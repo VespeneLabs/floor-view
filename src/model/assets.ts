@@ -39,6 +39,90 @@ export interface ModelAsset {
   mounted?: boolean;
 }
 
+/**
+ * One model of a {@link ModelKit}, as a compact tuple (handy for generated catalogs):
+ * `[file name, display name, width, depth, height, description?, mounted?]`, sizes in meters.
+ */
+export type KitModelTuple = readonly [
+  model: string,
+  name: string,
+  width: number,
+  depth: number,
+  height: number,
+  description?: string,
+  mounted?: boolean,
+];
+
+/** One model of a {@link ModelKit}, as an object (handy for hand-written catalogs). */
+export interface KitModelEntry {
+  /** File name without extension: the GLB is `<model>.glb`, the id `<prefix>/<model>`. */
+  model: string;
+  name: string;
+  size: ModelAsset['size'];
+  description?: string;
+  mounted?: boolean;
+  ai?: boolean;
+  /** Overrides the kit's `scale`. */
+  scale?: number;
+  /** Overrides the kit's `category`. */
+  category?: string;
+}
+
+/**
+ * A kit of 3D models served from one folder: `<base>/<model>.glb`, with optional previews at
+ * `<base>/previews/<model>.png`. Turn it into `ModelAsset`s with {@link kitAssets}. See
+ * docs/assets.md, "Making your own kit".
+ */
+export interface ModelKit {
+  /** Id namespace: asset ids are `<prefix>/<model>`, e.g. `"acme/pumps"`. Keep it stable; plans store the ids. */
+  prefix: string;
+  /** Category shown in pickers, e.g. `"Pumps"`. */
+  category: string;
+  models: readonly (KitModelTuple | KitModelEntry)[];
+  /** Model units → meters for every model (default 1). */
+  scale?: number;
+  /** Whether `previews/<model>.png` exists next to the models (default true). */
+  previews?: boolean;
+}
+
+/** Asset id of a kit model: `<prefix>/<model>`. */
+export function kitAssetId(kit: Pick<ModelKit, 'prefix'>, model: string): string {
+  return `${kit.prefix}/${model}`;
+}
+
+/**
+ * The kit's models as `ModelAsset`s, with files under `baseUrl` (where the kit folder is served,
+ * with or without a trailing slash). Pass the result, alone or with other kits, to the viewer and
+ * editor `assets`.
+ */
+export function kitAssets(kit: ModelKit, baseUrl: string): ModelAsset[] {
+  const base = baseUrl.replace(/\/+$/, '');
+  return kit.models.map((m) => {
+    const e = isTuple(m) ? tupleEntry(m) : m;
+    const scale = e.scale ?? kit.scale;
+    return {
+      id: kitAssetId(kit, e.model),
+      name: e.name,
+      url: `${base}/${e.model}.glb`,
+      category: e.category ?? kit.category,
+      size: { ...e.size },
+      ...(kit.previews === false ? {} : { preview: `${base}/previews/${e.model}.png` }),
+      ...(e.description ? { description: e.description } : {}),
+      ...(scale !== undefined && scale !== 1 ? { scale } : {}),
+      ...(e.mounted ? { mounted: true } : {}),
+      ...(e.ai === false ? { ai: false } : {}),
+    };
+  });
+}
+
+function isTuple(m: KitModelTuple | KitModelEntry): m is KitModelTuple {
+  return Array.isArray(m);
+}
+
+function tupleEntry([model, name, width, depth, height, description, mounted]: KitModelTuple): KitModelEntry {
+  return { model, name, size: { width, depth, height }, description, mounted };
+}
+
 /** Index assets by id (later entries win). */
 export function indexAssets(assets: readonly ModelAsset[]): Map<string, ModelAsset> {
   return new Map(assets.map((a) => [a.id, a]));

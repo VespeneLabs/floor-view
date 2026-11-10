@@ -5,7 +5,17 @@
  */
 export * from './types';
 export * from './geometry';
-export { indexAssets, markerFootprint, rotatePoint, type ModelAsset } from './assets';
+export {
+  indexAssets,
+  kitAssetId,
+  kitAssets,
+  markerFootprint,
+  rotatePoint,
+  type KitModelEntry,
+  type KitModelTuple,
+  type ModelAsset,
+  type ModelKit,
+} from './assets';
 export {
   clonePlan,
   createId,
