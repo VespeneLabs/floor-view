@@ -59,6 +59,7 @@ export function createSamplePlan(): FloorPlan {
           { id: 'marker_desk4', name: 'Desk 4', kind: 'desk', position: { x: 10, y: 3.5 } },
           { id: 'marker_exit', name: 'Main entrance', kind: 'exit', color: '#16a34a', position: { x: 4, y: 11.5 } },
         ],
+        pipelines: [],
       },
       {
         id: 'level_first',
@@ -77,6 +78,7 @@ export function createSamplePlan(): FloorPlan {
           { id: 'room_studio', name: 'Studio', points: rect(10, 0, 20, 12), color: '#a5f3fc', data: { capacity: 10 } },
         ],
         markers: [{ id: 'marker_screen', name: 'Main screen', kind: 'av', position: { x: 5, y: 0.6 } }],
+        pipelines: [],
       },
     ],
   };

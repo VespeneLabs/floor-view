@@ -102,6 +102,7 @@ export function convertProposal(input: unknown, image: ImageSize, options: Conve
       walls: [],
       rooms: [],
       markers: [],
+      pipelines: [],
     };
 
     let wallsOutside = 0;

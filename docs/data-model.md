@@ -27,6 +27,16 @@ A floor plan is a plain, JSON-serializable object (`FloorPlan`, see `src/model/t
       ],
       "markers": [
         { "id": "marker_exit", "name": "Main entrance", "kind": "exit", "position": { "x": 4, "y": 11.5 } }
+      ],
+      "pipelines": [
+        {
+          "id": "pipe_gas",
+          "name": "Gas supply",
+          "medium": "natural-gas",
+          "diameter": 0.05,
+          "color": "#facc15",
+          "points": [{ "x": 1, "y": 1, "z": 0.5 }, { "x": 1, "y": 1, "z": 2.6 }, { "x": 12, "y": 1, "z": 2.6 }]
+        }
       ]
     }
   ]
@@ -43,10 +53,13 @@ A floor plan is a plain, JSON-serializable object (`FloorPlan`, see `src/model/t
 
 | Entity | Required | Optional | Notes |
 | --- | --- | --- | --- |
-| `Level` | `id`, `name`, `elevation`, `height`, `walls`, `rooms`, `markers` | | A plan has at least one level. New levels stack at `max(elevation + height)`. |
+| `Level` | `id`, `name`, `elevation`, `height`, `walls`, `rooms`, `markers`, `pipelines` | | A plan has at least one level. New levels stack at `max(elevation + height)`. |
 | `Wall` | `id`, `start`, `end`, `thickness` | `height` | A straight segment. Door openings are gaps between segments. |
 | `Room` | `id`, `name`, `points` (≥ 3) | `color`, `data` | A simple polygon, not closed: the last point is not a repeat of the first. |
-| `Marker` | `id`, `name`, `position` | `kind`, `color`, `model`, `rotation`, `scale`, `elevation`, `data` | A point of interest such as a desk, exit or device. With `model` (a `ModelAsset` id) it is drawn as a 3D model, rotated `rotation`° clockwise, scaled by `scale` and raised `elevation` m above the floor (see [3D model assets](assets.md)). |
+| `Marker` | `id`, `name`, `position` | `kind`, `color`, `model`, `rotation`, `scale`, `elevation`, `data` | A point of interest such as a desk, exit or device. With `model` (a `ModelAsset` id) it is drawn as a 3D model, rotated `rotation`° clockwise, scaled by `scale` and raised `elevation` m above the floor (see [3D model assets](assets.md)). `pipelineId` marks a fitting (valve, regulator, meter) that sits on a pipeline. |
+| `Pipeline` | `id`, `name`, `points` (≥ 2), `diameter` | `medium`, `color`, `from`, `to`, `data` | A pipe route: an open 3D polyline. Each point has `x`, `y` and `z` (m above the level floor); consecutive points differ, and two points with the same `x`/`y` form a vertical riser. `diameter` is the outer diameter in m. `medium` is free text (e.g. `"natural-gas"`, `"N2"`) that the library never interprets. `from`/`to` are ids of the markers (equipment) the first and last point are attached to. |
+
+Tees and joints between pipelines are not stored: `pipelineJunctions(level)` derives them from the geometry (an end that meets another pipeline's end is a `joint`, an end that lands between its ends is a `tee`; both are checked in 3D, so pipes crossing at different heights don't connect).
 
 `data` is free-form metadata for the host app (capacity, external ids…). The library never interprets it.
 
@@ -68,7 +81,7 @@ try {
 }
 ```
 
-The validator checks types, positive sizes, at least 3 points per room, unique ids and the `version`. Unknown properties are dropped. Coordinates may be any finite number.
+The validator checks types, positive sizes, at least 3 points per room, at least 2 distinct consecutive points per pipeline, unique ids and the `version`. Unknown properties are dropped, and so are links that don't resolve on the same level (a pipeline's `from`/`to`, a marker's `pipelineId`). A level without `pipelines` (plans saved before pipelines existed) gets an empty list. Coordinates may be any finite number.
 
 ### On a server (`@vespenelabs/floorview/model`)
 
@@ -90,6 +103,9 @@ The subpath is a separate bundle, so a `PlanValidationError` thrown by it is not
 
 - Plans: `createPlan`, `createSamplePlan` (the two-level demo office), `createLevel`, `clonePlan`, `getLevel`, `findEntity`, `removeEntity`, `translateEntity`, `entityPoints`, `levelBounds`, `nextLevelElevation`
 - Geometry: `polygonArea`, `polygonCentroid`, `pointInPolygon`, `distanceToSegment`, `closestPointOnSegment`, `snapToGrid`, `snapPoint`, `constrainAngle`, `boundsOf`
+- Pipelines (`src/model/pipeline.ts`): `pipelineLength` (3D, risers included), `pipeDistance`, `isRiser`, `nearestPointOnPipeline` (plan-view projection with interpolated `z`, segment index and `t`), `segmentRotation` (clockwise degrees that line a model's x axis up with a segment, for fittings), `pipelineJunctions`
+
+`removeEntity` also clears links to the removed entity: removing a marker detaches the pipeline ends attached to it, and removing a pipeline clears `pipelineId` on its fittings.
 
 ## Versioning
 

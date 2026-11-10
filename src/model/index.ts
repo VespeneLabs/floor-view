@@ -29,4 +29,15 @@ export {
   removeEntity,
   translateEntity,
 } from './plan';
+export {
+  isRiser,
+  nearestPointOnPipeline,
+  pipeDistance,
+  pipelineJunctions,
+  pipelineLength,
+  segmentRotation,
+  type PipelineEnd,
+  type PipelineJunction,
+  type PipelineProjection,
+} from './pipeline';
 export { parsePlan, parsePlanJSON, PlanValidationError } from './validate';

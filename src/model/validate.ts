@@ -1,4 +1,14 @@
-import { PLAN_FORMAT_VERSION, type FloorPlan, type Level, type Marker, type Point, type Room, type Wall } from './types';
+import {
+  PLAN_FORMAT_VERSION,
+  type FloorPlan,
+  type Level,
+  type Marker,
+  type PipePoint,
+  type Pipeline,
+  type Point,
+  type Room,
+  type Wall,
+} from './types';
 
 export class PlanValidationError extends Error {
   constructor(
@@ -99,9 +109,59 @@ function marker(value: unknown, path: string): Marker {
   if (o.rotation !== undefined) m.rotation = num(o.rotation, `${path}.rotation`);
   if (o.scale !== undefined) m.scale = num(o.scale, `${path}.scale`, { positive: true });
   if (o.elevation !== undefined) m.elevation = num(o.elevation, `${path}.elevation`);
+  const pipelineId = optStr(o.pipelineId, `${path}.pipelineId`);
+  if (pipelineId) m.pipelineId = pipelineId;
   const data = optData(o.data, `${path}.data`);
   if (data) m.data = data;
   return m;
+}
+
+function pipePoint(value: unknown, path: string): PipePoint {
+  const o = obj(value, path);
+  return { x: num(o.x, `${path}.x`), y: num(o.y, `${path}.y`), z: num(o.z, `${path}.z`) };
+}
+
+function pipeline(value: unknown, path: string): Pipeline {
+  const o = obj(value, path);
+  const points = arr(o.points, `${path}.points`).map((p, i) => pipePoint(p, `${path}.points[${i}]`));
+  if (points.length < 2) throw new PlanValidationError(`${path}.points`, 'a pipeline needs at least 2 points');
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    if (a.x === b.x && a.y === b.y && a.z === b.z) {
+      throw new PlanValidationError(`${path}.points[${i}]`, 'repeats the previous point');
+    }
+  }
+  const p: Pipeline = {
+    id: str(o.id, `${path}.id`),
+    name: typeof o.name === 'string' ? o.name : '',
+    points,
+    diameter: num(o.diameter, `${path}.diameter`, { positive: true }),
+  };
+  const medium = optStr(o.medium, `${path}.medium`);
+  if (medium) p.medium = medium;
+  const color = optStr(o.color, `${path}.color`);
+  if (color) p.color = color;
+  const from = optStr(o.from, `${path}.from`);
+  if (from) p.from = from;
+  const to = optStr(o.to, `${path}.to`);
+  if (to) p.to = to;
+  const data = optData(o.data, `${path}.data`);
+  if (data) p.data = data;
+  return p;
+}
+
+/** Drop links that don't resolve on the same level (pipeline ends → markers, fittings → pipelines). */
+function dropDanglingLinks(level: Level): void {
+  const markerIds = new Set(level.markers.map((m) => m.id));
+  const pipelineIds = new Set(level.pipelines.map((p) => p.id));
+  for (const p of level.pipelines) {
+    if (p.from !== undefined && !markerIds.has(p.from)) delete p.from;
+    if (p.to !== undefined && !markerIds.has(p.to)) delete p.to;
+  }
+  for (const m of level.markers) {
+    if (m.pipelineId !== undefined && !pipelineIds.has(m.pipelineId)) delete m.pipelineId;
+  }
 }
 
 function level(value: unknown, path: string): Level {
@@ -114,12 +174,14 @@ function level(value: unknown, path: string): Level {
     walls: arr(o.walls ?? [], `${path}.walls`).map((w, i) => wall(w, `${path}.walls[${i}]`)),
     rooms: arr(o.rooms ?? [], `${path}.rooms`).map((r, i) => room(r, `${path}.rooms[${i}]`)),
     markers: arr(o.markers ?? [], `${path}.markers`).map((m, i) => marker(m, `${path}.markers[${i}]`)),
+    pipelines: arr(o.pipelines ?? [], `${path}.pipelines`).map((p, i) => pipeline(p, `${path}.pipelines[${i}]`)),
   };
 }
 
 /**
  * Validate untrusted input (e.g. parsed JSON) and return a normalized `FloorPlan`.
- * Unknown properties are dropped. Throws `PlanValidationError` with a JSON path on failure.
+ * Unknown properties are dropped, and so are pipeline `from`/`to` and marker `pipelineId` links
+ * that don't resolve to an entity on the same level. Throws `PlanValidationError` with a JSON path on failure.
  */
 export function parsePlan(input: unknown): FloorPlan {
   const o = obj(input, '$');
@@ -135,7 +197,9 @@ export function parsePlan(input: unknown): FloorPlan {
     uniqueIds(l.walls, `$.levels[${i}].walls`, seen);
     uniqueIds(l.rooms, `$.levels[${i}].rooms`, seen);
     uniqueIds(l.markers, `$.levels[${i}].markers`, seen);
+    uniqueIds(l.pipelines, `$.levels[${i}].pipelines`, seen);
   });
+  levels.forEach(dropDanglingLinks);
 
   return { version: PLAN_FORMAT_VERSION, id: str(o.id, '$.id'), name: typeof o.name === 'string' ? o.name : '', levels };
 }

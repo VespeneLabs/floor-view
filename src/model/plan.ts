@@ -27,6 +27,7 @@ export function createLevel(partial: Partial<Level> = {}): Level {
     walls: partial.walls ?? [],
     rooms: partial.rooms ?? [],
     markers: partial.markers ?? [],
+    pipelines: partial.pipelines ?? [],
   };
 }
 
@@ -47,7 +48,7 @@ export function getLevel(plan: FloorPlan, levelId: string): Level | undefined {
   return plan.levels.find((l) => l.id === levelId);
 }
 
-const COLLECTION = { wall: 'walls', room: 'rooms', marker: 'markers' } as const;
+const COLLECTION = { wall: 'walls', room: 'rooms', marker: 'markers', pipeline: 'pipelines' } as const;
 
 export function collectionOf(level: Level, kind: EntityKind): Entity[] {
   return level[COLLECTION[kind]];
@@ -58,6 +59,10 @@ export function findEntity(plan: FloorPlan, ref: EntityRef): Entity | undefined 
   return level ? collectionOf(level, ref.kind).find((e) => e.id === ref.id) : undefined;
 }
 
+/**
+ * Remove an entity. Links to it are cleared too: removing a marker detaches the pipeline ends
+ * attached to it (`from`/`to`), removing a pipeline clears `pipelineId` on the markers on it.
+ */
 export function removeEntity(plan: FloorPlan, ref: EntityRef): boolean {
   const level = getLevel(plan, ref.levelId);
   if (!level) return false;
@@ -65,10 +70,21 @@ export function removeEntity(plan: FloorPlan, ref: EntityRef): boolean {
   const index = list.findIndex((e) => e.id === ref.id);
   if (index < 0) return false;
   list.splice(index, 1);
+  if (ref.kind === 'marker') {
+    for (const p of level.pipelines) {
+      if (p.from === ref.id) delete p.from;
+      if (p.to === ref.id) delete p.to;
+    }
+  } else if (ref.kind === 'pipeline') {
+    for (const m of level.markers) if (m.pipelineId === ref.id) delete m.pipelineId;
+  }
   return true;
 }
 
-/** Every point that defines an entity's geometry (wall endpoints, room vertices, marker position). */
+/**
+ * Every point that defines an entity's geometry (wall endpoints, room or pipeline vertices, marker
+ * position). Pipeline points keep their `z`.
+ */
 export function entityPoints(kind: EntityKind, entity: Entity): Point[] {
   switch (kind) {
     case 'wall': {
@@ -76,6 +92,7 @@ export function entityPoints(kind: EntityKind, entity: Entity): Point[] {
       return [w.start, w.end];
     }
     case 'room':
+    case 'pipeline':
       return (entity as Extract<Entity, { points: Point[] }>).points;
     case 'marker':
       return [(entity as Extract<Entity, { position: Point }>).position];
@@ -103,6 +120,7 @@ export function levelBounds(level: Level): Bounds | null {
     ...level.walls.flatMap((w) => [w.start, w.end]),
     ...level.rooms.flatMap((r) => r.points),
     ...level.markers.map((m) => m.position),
+    ...level.pipelines.flatMap((p) => p.points),
   ]);
 }
 

@@ -57,6 +57,39 @@ export interface Marker {
    * wall-mounted model moved up or down. Added to the model's own height. Default 0.
    */
   elevation?: number;
+  /**
+   * Id of the pipeline this marker sits on (a valve, regulator or meter placed on a pipe). The
+   * marker keeps its own position, rotation and elevation; the link tells hosts what it belongs to.
+   */
+  pipelineId?: string;
+  data?: Metadata;
+}
+
+/** A pipeline vertex: a plan point plus its height above the level floor, in meters. */
+export interface PipePoint extends Point {
+  z: number;
+}
+
+/**
+ * A pipe route: an open polyline in 3D. Consecutive points differ; two points with the same
+ * `x`/`y` and different `z` form a vertical riser. Tees and joints between pipelines are not
+ * stored: they follow from the geometry (see `pipelineJunctions`).
+ */
+export interface Pipeline {
+  id: string;
+  name: string;
+  /** At least 2 points. */
+  points: PipePoint[];
+  /** Outer diameter in meters. */
+  diameter: number;
+  /** Free-form medium, e.g. "natural-gas", "N2", "compressed-air". The library never interprets it. */
+  medium?: string;
+  /** CSS color for the pipe; without one, the editor and viewer use their default pipe color. */
+  color?: string;
+  /** Id of the marker (equipment) the first point is attached to. */
+  from?: string;
+  /** Id of the marker (equipment) the last point is attached to. */
+  to?: string;
   data?: Metadata;
 }
 
@@ -70,6 +103,7 @@ export interface Level {
   walls: Wall[];
   rooms: Room[];
   markers: Marker[];
+  pipelines: Pipeline[];
 }
 
 export interface FloorPlan {
@@ -79,7 +113,7 @@ export interface FloorPlan {
   levels: Level[];
 }
 
-export type EntityKind = 'wall' | 'room' | 'marker';
+export type EntityKind = 'wall' | 'room' | 'marker' | 'pipeline';
 
 /** Reference to one entity inside a plan. */
 export interface EntityRef {
@@ -88,7 +122,7 @@ export interface EntityRef {
   levelId: string;
 }
 
-export type Entity = Wall | Room | Marker;
+export type Entity = Wall | Room | Marker | Pipeline;
 
 /**
  * A reference image (e.g. a scanned drawing) placed in plan coordinates under the plan, for

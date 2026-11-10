@@ -208,6 +208,7 @@ export function createKenneyDemoPlan(): FloorPlan {
           { id: 'room_wc', name: 'WC', points: rect(31, 18, 36, 22), color: '#e9d5ff' },
         ],
         markers: groundMarkers,
+        pipelines: [],
       },
       {
         id: 'level_clinic',
@@ -226,6 +227,7 @@ export function createKenneyDemoPlan(): FloorPlan {
           { id: 'room_staff', name: 'Staff room', points: rect(31, 16, 36, 22), color: '#fde68a', data: { capacity: 6 } },
         ],
         markers: clinicMarkers,
+        pipelines: [],
       },
     ],
   };
