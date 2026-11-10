@@ -12,12 +12,16 @@ const viewer = new FloorplanViewer(container, {
   level: 'all',          // a level id, or 'all' (3D shows every level stacked)
   background: '#f8fafc',
   showLabels: true,      // room name labels
-  colors: { wall: '#f1f5f9', room: '#dbe3ec', marker: '#6366f1', point: '#f97316', model: '#eef1f5' },
+  colors: { wall: '#f1f5f9', room: '#dbe3ec', marker: '#6366f1', point: '#f97316', model: '#eef1f5', pipe: '#ca8a04' },
   assets,                // ModelAsset[]: 3D models for markers with `model` (see assets.md)
 });
 ```
 
 The viewer appends a `.vl-viewer` element that fills `container`, and resizes with it through a `ResizeObserver`.
+
+## Pipelines
+
+Pipelines (see [data model](data-model.md)) are drawn as tubes of their real diameter at their points' heights, in `pipeline.color` (or `colors.pipe`): a cylinder per segment, rounded joints at bends, a fitting body where one pipeline meets another (tee or joint), and steel floor supports (a post and a cross bar every ~3 m) under horizontal runs from 1.5 m up. Real pipes are only a few pixels wide, so each segment also has an invisible pick cylinder at least 15 cm in radius: hovering lights up the whole pipeline, the tooltip shows its name, medium and diameter, and a click reports `{ kind: 'pipeline', id, levelId }`. Fittings (markers with `pipelineId`) are ordinary markers raised to the pipe by their `elevation`.
 
 ## Methods
 
@@ -33,6 +37,8 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 | `clientToPlan(clientX, clientY)` | The `{ levelId, position }` under viewport coordinates (room floor under the pointer, else the lowest shown level's floor plane), e.g. for a `drop` event. Null outside the viewer. |
 | `setGhost({ levelId, position, size, rotation?, color? } \| null)` | A translucent placement box, e.g. where a dragged asset would land. |
 | `setMarkerTints({ [markerId]: color \| null }, { replace? })` / `setMarkerTint(id, color \| null)` / `getMarkerTints()` | Host-managed state colors, e.g. red for an alarm or amber for low stock. A tint colors a marker's whole 3D model (all parts, clay shading kept) or its glyph, and wins over `marker.color`. Not plan data: updates in place without a rebuild, kept across `setPlan`. `replace: true` clears tints not listed. |
+| `setPipelineTints({ [pipelineId]: color \| null }, { replace? })` / `setPipelineTint(id, color \| null)` / `getPipelineTints()` | The same for pipelines, e.g. red for a leak alarm: the tint replaces the pipe color (its supports stay steel). In place, kept across `setPlan`. |
+| `setPipelineFlow(id, 'forward' \| 'reverse' \| null)` / `setPipelineFlows({ [id]: direction \| null }, { replace? })` / `getPipelineFlows()` | Show the flow in a pipeline as beads moving along it (`forward`: from its first point to its last). Kept across `setPlan`. The viewer renders every frame only while beads are visible; with `prefers-reduced-motion` they stand still. |
 | `setShowModels(boolean)` / `getShowModels()` | Show or hide markers' 3D models (also the `showModels` option). Models are always drawn decolorized; `marker.color` is their accent. |
 | `setAssets(assets)` / `getAssets()` | The 3D models markers can show (`marker.model`). Rebuilds the scene; each GLB loads once and is shared. See [3D model assets](assets.md). |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
@@ -56,7 +62,7 @@ viewer.on('modechange', (mode) => { ... });
 viewer.on('levelchange', (level) => { ... });
 ```
 
-- `target` is a `PickInfo` (`{ kind: 'wall' | 'room' | 'marker' | 'point', id, levelId, layerId? }`), or `null` for empty space.
+- `target` is a `PickInfo` (`{ kind: 'wall' | 'room' | 'marker' | 'pipeline' | 'point', id, levelId, layerId? }`), or `null` for empty space.
 - `point` is the pointer position in **plan coordinates** (meters), or `null` if the ray missed the floor.
 - A pointer that moves more than 4 px between down and up counts as a camera drag, not a click.
 

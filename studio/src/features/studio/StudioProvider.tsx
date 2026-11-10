@@ -16,6 +16,7 @@ export function StudioProvider({ children }: { children: ReactNode }) {
     occupancy: false,
     sensors: false,
     models: true,
+    flow: false,
   });
   const [message, setMessage] = useState('');
   const [underlay, setUnderlay] = useState<Underlay | null>(null);

@@ -76,6 +76,14 @@ export function ViewerPanel() {
     viewer?.setShowModels(view.models);
   }, [viewer, view.models]);
 
+  // Flow animation in every pipeline of the plan (the viewer keeps it across plan updates).
+  const pipelineIds = plan?.levels.flatMap((l) => l.pipelines.map((p) => p.id)).join(' ') ?? '';
+  useEffect(() => {
+    if (!viewer) return;
+    const flows = view.flow ? Object.fromEntries(pipelineIds.split(' ').filter(Boolean).map((id) => [id, 'forward' as const])) : {};
+    viewer.setPipelineFlows(flows, { replace: true });
+  }, [viewer, view.flow, pipelineIds]);
+
 
   // Dragging a marker or 3D model in the viewer moves it in the plan (one undo step) and selects it.
   useEffect(() => {
@@ -138,6 +146,7 @@ export function ViewerPanel() {
           <Toggle label="All levels" setting="allLevels" />
           <Toggle label="Labels" setting="labels" />
           <Toggle label="Assets" setting="models" />
+          <Toggle label="Flow" setting="flow" />
           <Toggle label="Occupancy" setting="occupancy" />
           <Toggle label="Sensors" setting="sensors" />
         </>

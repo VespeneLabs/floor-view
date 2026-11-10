@@ -37,6 +37,7 @@ export {
   pipeDistance,
   pipelineJunctions,
   pipelineLength,
+  pointAlongPipeline,
   segmentRotation,
   syncPipelineLinks,
   type PipelineEnd,

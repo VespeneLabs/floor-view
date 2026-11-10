@@ -197,3 +197,24 @@ export function syncPipelineLinks(level: Level, options: SyncPipelineLinksOption
 function round(v: number): number {
   return Math.round(v * 1e6) / 1e6 + 0;
 }
+
+/**
+ * The point `distance` meters along a pipeline from its first point, in 3D (risers count), clamped
+ * to its ends. Null for a pipeline without points.
+ */
+export function pointAlongPipeline(pipeline: Pipeline, distance: number): PipePoint | null {
+  const pts = pipeline.points;
+  if (pts.length === 0) return null;
+  let left = Math.max(0, distance);
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const len = pipeDistance(a, b);
+    if (left <= len && len > 0) {
+      const t = left / len;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+    }
+    left -= len;
+  }
+  return { ...pts[pts.length - 1]! };
+}
