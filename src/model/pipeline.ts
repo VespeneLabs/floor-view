@@ -1,5 +1,5 @@
 import { distance, EPSILON } from './geometry';
-import type { Level, PipePoint, Pipeline, Point } from './types';
+import type { Level, Marker, PipePoint, Pipeline, Point } from './types';
 
 /** Distance between two pipeline points in 3D (m). */
 export function pipeDistance(a: PipePoint, b: PipePoint): number {
@@ -128,4 +128,72 @@ export function pipelineJunctions(level: Level, tolerance = 1e-3): PipelineJunct
     }
   });
   return out;
+}
+
+/**
+ * Indices of the points at one end of a pipeline that share its plan position (the end point plus
+ * any riser points above or below it), so the whole riser moves when the end moves.
+ */
+export function pipelineEndRun(pipeline: Pipeline, end: PipelineEnd): number[] {
+  const pts = pipeline.points;
+  const n = pts.length;
+  if (n === 0) return [];
+  const first = end === 'start' ? 0 : n - 1;
+  const step = end === 'start' ? 1 : -1;
+  const anchor = pts[first]!;
+  const run = [first];
+  for (let i = first + step; i >= 0 && i < n && pts[i]!.x === anchor.x && pts[i]!.y === anchor.y; i += step) run.push(i);
+  return run.length === n ? [first] : run; // a pipeline that is one riser: move only the end
+}
+
+/**
+ * Rotation (degrees) along a pipe segment that stays closest to `current`: `segmentRotation` or
+ * the opposite direction, so a fitting keeps the way it faces when it slides around a corner.
+ */
+export function alignRotation(current: number, a: Point, b: Point): number {
+  const along = segmentRotation(a, b);
+  const diff = Math.abs((((current - along) % 360) + 540) % 360 - 180);
+  return diff > 90 ? (along + 180) % 360 : along;
+}
+
+export interface SyncPipelineLinksOptions {
+  /**
+   * Height of a fitting's center above its `elevation` (e.g. half its model height), so the
+   * fitting sits centered on the pipe: `elevation = max(0, pipe z - offset)`. Return null to leave
+   * the elevation alone (e.g. wall-mounted models). Default: 0 (the marker is at the pipe's z).
+   */
+  fittingOffset?: (marker: Marker) => number | null;
+}
+
+/**
+ * Re-apply a level's links after an edit, in place: pipeline ends attached to markers (`from`/`to`)
+ * move to their marker's position (with any riser at that end), and fittings (`pipelineId`) move to
+ * the closest point on their pipeline, taking its height. Rotations are left alone (see
+ * `alignRotation`).
+ */
+export function syncPipelineLinks(level: Level, options: SyncPipelineLinksOptions = {}): void {
+  const markers = new Map(level.markers.map((m) => [m.id, m]));
+  for (const pipe of level.pipelines) {
+    for (const [end, id] of [['start', pipe.from], ['end', pipe.to]] as const) {
+      const marker = id ? markers.get(id) : undefined;
+      if (!marker) continue;
+      for (const i of pipelineEndRun(pipe, end)) {
+        pipe.points[i]!.x = marker.position.x;
+        pipe.points[i]!.y = marker.position.y;
+      }
+    }
+  }
+  const pipes = new Map(level.pipelines.map((p) => [p.id, p]));
+  for (const marker of level.markers) {
+    const pipe = marker.pipelineId ? pipes.get(marker.pipelineId) : undefined;
+    const hit = pipe && nearestPointOnPipeline(pipe, marker.position);
+    if (!hit) continue;
+    marker.position = { x: hit.point.x, y: hit.point.y };
+    const offset = options.fittingOffset ? options.fittingOffset(marker) : 0;
+    if (offset !== null) marker.elevation = Math.max(0, round(hit.point.z - offset));
+  }
+}
+
+function round(v: number): number {
+  return Math.round(v * 1e6) / 1e6 + 0;
 }

@@ -1,6 +1,6 @@
 # Plan: Pipelines (draw pipes next to walls)
 
-Status: phase 1 done (model, validator, geometry) · 2026-11-10 · Target: 0.7.0
+Status: phases 1–2 done (model, editor) · 2026-11-10 · Target: 0.7.0
 
 Our clients are mostly in the gas industry. Today a pipe is a chain of Gas kit markers
 (`pipe-run`, `pipe-run-corner`, `pipe-run-tee`, `pipe-riser`) placed by hand. This feature makes a
@@ -96,7 +96,7 @@ export interface Pipeline {
 ## Phases
 
 1. ✅ **Model + validator + geometry** (pure, fully tested in `tests/pipeline.test.ts`). `Level.pipelines` is required in the type and normalized by `parsePlan`/`createLevel`, so the editor and viewer (which don't validate on `setPlan`) should still guard against hand-built plans without it.
-2. **Editor pipe tool + selection editing + marker coupling.**
+2. ✅ **Editor pipe tool + selection editing + marker coupling** (`tests/editor-pipes.test.ts`), plus a minimal Studio UI for hand testing (Draw pipes button, height/Ø bar, pipeline inspector; `CommitInput` moved to `studio/src/components/`). Deviations from the plan above: settings are one `setPipeSettings`/`getPipeSettings` + `pipesettingschange` (not separate elevation calls); Alt-click inserts/removes vertices (no "segment drag", no Delete-on-vertex); markers snap only near their center (whole-footprint snapping hijacked clicks in furnished plans, found in Studio); fitting rotation is updated when a fitting slides or its pipeline is reshaped, not on every sync; a segment touching moved equipment can become diagonal (no auto re-orthogonalising).
 3. **3D rendering + picking + tints**, then the flow animation.
 4. **Studio UI** (toolbar button, sub-toolbar, inspector), plus docs and PRD → release 0.7.0.
 5. **Phase 2:** AI architect (`pipelines` in `propose_floor_plan`, `convertProposal` validation, prompt guidance, `/gas` media in the asset catalog), and later auto-routing (source → target, orthogonal along walls).

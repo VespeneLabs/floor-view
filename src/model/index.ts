@@ -30,14 +30,18 @@ export {
   translateEntity,
 } from './plan';
 export {
+  alignRotation,
   isRiser,
   nearestPointOnPipeline,
+  pipelineEndRun,
   pipeDistance,
   pipelineJunctions,
   pipelineLength,
   segmentRotation,
+  syncPipelineLinks,
   type PipelineEnd,
   type PipelineJunction,
   type PipelineProjection,
+  type SyncPipelineLinksOptions,
 } from './pipeline';
 export { parsePlan, parsePlanJSON, PlanValidationError } from './validate';

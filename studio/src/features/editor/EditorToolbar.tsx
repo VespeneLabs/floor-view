@@ -1,4 +1,4 @@
-import type { EditorTool } from '@vespenelabs/floorview';
+import type { EditorTool, FloorplanEditor, PipeSettings } from '@vespenelabs/floorview';
 import {
   BrickWall,
   Hand,
@@ -11,13 +11,15 @@ import {
   Redo2,
   RotateCcw,
   RotateCw,
+  Route,
   SquareDashed,
   Trash2,
   Undo2,
   type LucideIcon,
 } from 'lucide-react';
-import { useId, type ReactElement } from 'react';
+import { useEffect, useId, useState, type ReactElement } from 'react';
 
+import { CommitInput } from '@/components/CommitInput';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -30,6 +32,7 @@ import { useStudio } from '@/features/studio/studio-context';
 const TOOLS: { tool: EditorTool; label: string; shortcut: string; icon: LucideIcon }[] = [
   { tool: 'select', label: 'Select and move', shortcut: 'V', icon: MousePointer2 },
   { tool: 'wall', label: 'Draw walls', shortcut: 'W', icon: BrickWall },
+  { tool: 'pipe', label: 'Draw pipes', shortcut: 'P', icon: Route },
   { tool: 'room', label: 'Draw rooms', shortcut: 'R', icon: SquareDashed },
   { tool: 'marker', label: 'Place markers', shortcut: 'M', icon: MapPin },
   { tool: 'pan', label: 'Pan', shortcut: 'H', icon: Hand },
@@ -77,6 +80,47 @@ function Hint({ label, shortcut, children }: { label: string; shortcut?: string;
   );
 }
 
+/** Elevation and diameter for new pipes, shown while the pipe tool is active. */
+function PipeSettingsBar({ editor }: { editor: FloorplanEditor }) {
+  const [settings, setSettings] = useState<PipeSettings>(() => editor.getPipeSettings());
+  const elevationId = useId();
+  const diameterId = useId();
+  useEffect(() => {
+    setSettings(editor.getPipeSettings());
+    return editor.on('pipesettingschange', setSettings);
+  }, [editor]);
+  const set = (patch: Partial<PipeSettings>) => editor.setPipeSettings(patch);
+
+  return (
+    <div className="flex items-center gap-2">
+      <Label htmlFor={elevationId} className="text-muted-foreground">
+        Height (m)
+      </Label>
+      <CommitInput
+        id={elevationId}
+        type="number"
+        step={0.1}
+        min={0}
+        className="h-8 w-20"
+        value={settings.elevation}
+        onCommit={(v) => v !== '' && set({ elevation: Number(v) })}
+      />
+      <Label htmlFor={diameterId} className="text-muted-foreground">
+        Ø (mm)
+      </Label>
+      <CommitInput
+        id={diameterId}
+        type="number"
+        step={5}
+        min={5}
+        className="h-8 w-20"
+        value={Math.round(settings.diameter * 1000)}
+        onCommit={(v) => Number(v) > 0 && set({ diameter: Number(v) / 1000 })}
+      />
+    </div>
+  );
+}
+
 export function EditorToolbar() {
   const { editor, snapshot, underlay, underlayVisible, setUnderlayVisible } = useStudio();
   const snapId = useId();
@@ -106,6 +150,13 @@ export function EditorToolbar() {
           </Hint>
         ))}
       </ToggleGroup>
+
+      {editor && snapshot?.tool === 'pipe' && (
+        <>
+          <Separator orientation="vertical" className="mx-1 h-6" />
+          <PipeSettingsBar editor={editor} />
+        </>
+      )}
 
       <Separator orientation="vertical" className="mx-1 h-6" />
 

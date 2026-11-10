@@ -2,48 +2,23 @@ import {
   distance,
   findEntity,
   getLevel,
+  pipelineLength,
   polygonArea,
   type EntityRef,
   type Marker,
+  type Pipeline,
   type Room,
   type Wall,
 } from '@vespenelabs/floorview';
-import { useId, type ComponentProps, type ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
+import { CommitInput } from '@/components/CommitInput';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { VespeneLabsMark } from '@/components/VespeneLabsMark';
 import { useStudio } from '@/features/studio/studio-context';
 import { ASSETS } from '@/lib/assets';
-
-/**
- * An input that commits on the native `change` event (blur, Enter, closing a color picker),
- * not on every keystroke, so each edit is a single undo step. It resets when `value` changes.
- */
-function CommitInput({
-  value,
-  onCommit,
-  ...props
-}: Omit<ComponentProps<typeof Input>, 'value' | 'defaultValue' | 'onChange'> & {
-  value: string | number;
-  onCommit: (value: string) => void;
-}) {
-  return (
-    <Input
-      key={String(value)}
-      defaultValue={value}
-      ref={(el) => {
-        if (!el) return;
-        const commit = () => onCommit(el.value);
-        el.addEventListener('change', commit);
-        return () => el.removeEventListener('change', commit);
-      }}
-      {...props}
-    />
-  );
-}
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId();
@@ -79,7 +54,8 @@ export function Inspector() {
   const { plan, selection, levelId } = snapshot;
   const level = getLevel(plan, levelId);
   const entity = selection ? findEntity(plan, selection) : undefined;
-  const update = (ref: EntityRef, patch: Partial<Wall & Room & Marker>) => editor.updateEntity(ref, patch);
+  const update = (ref: EntityRef, patch: Partial<Wall & Room & Marker> | Partial<Pipeline>) => editor.updateEntity(ref, patch);
+  const markerName = (id: string | undefined) => (id ? (level?.markers.find((m) => m.id === id)?.name ?? id) : 'Not connected');
 
   let title = 'Level';
   let body: ReactNode = null;
@@ -148,6 +124,67 @@ export function Inspector() {
             )}
           </Field>
           <ReadOnly label="Area" value={`${polygonArea(room.points).toFixed(2)} m²`} />
+        </>
+      );
+    } else if (selection.kind === 'pipeline') {
+      const pipe = entity as Pipeline;
+      const heights = pipe.points.map((p) => p.z);
+      title = 'Pipeline';
+      body = (
+        <>
+          <Field label="Name">{(id) => <CommitInput id={id} value={pipe.name} onCommit={(v) => update(selection, { name: v })} />}</Field>
+          <Field label="Medium">
+            {(id) => (
+              <CommitInput
+                id={id}
+                value={pipe.medium ?? ''}
+                placeholder="natural-gas, N2, compressed-air…"
+                onCommit={(v) => update(selection, { medium: v || undefined })}
+              />
+            )}
+          </Field>
+          <Field label="Diameter (m)">
+            {(id) => (
+              <CommitInput
+                id={id}
+                type="number"
+                step={0.005}
+                min={0.005}
+                value={pipe.diameter}
+                onCommit={(v) => positive(v) && update(selection, { diameter: Number(v) })}
+              />
+            )}
+          </Field>
+          <Field label="Color">
+            {(id) => (
+              <div className="flex items-center gap-2">
+                <CommitInput
+                  id={id}
+                  type="color"
+                  className="p-1"
+                  value={pipe.color ?? '#ca8a04'}
+                  onCommit={(v) => update(selection, { color: v })}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!pipe.color}
+                  aria-label="Use the default pipe color"
+                  onClick={() => update(selection, { color: undefined })}
+                >
+                  Default
+                </Button>
+              </div>
+            )}
+          </Field>
+          <ReadOnly label="Length (3D)" value={`${pipelineLength(pipe).toFixed(2)} m`} />
+          <ReadOnly
+            label="Height"
+            value={`${Math.min(...heights).toFixed(2)}–${Math.max(...heights).toFixed(2)} m · ${pipe.points.length} points`}
+          />
+          <ReadOnly label="From" value={markerName(pipe.from)} />
+          <ReadOnly label="To" value={markerName(pipe.to)} />
+          <p className="text-xs text-muted-foreground">Drag a point to reshape. Alt-click the pipe to add a point, Alt-click a point to remove it.</p>
         </>
       );
     } else {
