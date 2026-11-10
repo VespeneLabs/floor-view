@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { FloorplanEditor } from '../src/editor/Editor';
 import { createKenneyDemoPlan, humanizeModelName, KENNEY_KITS, kenneyAssets } from '../src/kenney/index';
-import { markerFootprint, type ModelAsset } from '../src/model/assets';
+import { kitAssetId, kitAssets, markerFootprint, type ModelAsset, type ModelKit } from '../src/model/assets';
 import { createPlan } from '../src/model/plan';
 import type { Marker } from '../src/model/types';
 import { parsePlan } from '../src/model/validate';
@@ -221,6 +221,42 @@ describe('model color styles', () => {
     applyModelStyle(a, { clay, accent: null });
     expect(uniforms(a).vlAccentOn.value).toBe(0);
     expect((template.children[0] as THREE.Mesh).material).not.toBe(material); // template untouched
+  });
+});
+
+describe('custom model kits', () => {
+  const kit: ModelKit = {
+    prefix: 'acme/pumps',
+    category: 'Pumps',
+    models: [
+      ['booster', 'Booster pump', 0.6, 0.4, 0.8, 'Booster pump on a skid.'],
+      ['wall-panel', 'Pump panel', 0.5, 0.2, 1.6, undefined, true],
+      { model: 'tank', name: 'Tank', size: { width: 1, depth: 1, height: 2 }, ai: false, scale: 0.01, category: 'Tanks' },
+    ],
+  };
+
+  it('turns tuple and object entries into ModelAssets under the base URL', () => {
+    const [booster, panel, tank] = kitAssets(kit, 'https://cdn.example.com/kits/pumps/');
+    expect(booster).toEqual({
+      id: 'acme/pumps/booster',
+      name: 'Booster pump',
+      url: 'https://cdn.example.com/kits/pumps/booster.glb',
+      preview: 'https://cdn.example.com/kits/pumps/previews/booster.png',
+      category: 'Pumps',
+      size: { width: 0.6, depth: 0.4, height: 0.8 },
+      description: 'Booster pump on a skid.',
+    });
+    expect(panel!.mounted).toBe(true);
+    expect(panel!.description).toBeUndefined();
+    expect(tank).toMatchObject({ id: 'acme/pumps/tank', category: 'Tanks', scale: 0.01, ai: false });
+    expect(kitAssetId(kit, 'booster')).toBe('acme/pumps/booster');
+  });
+
+  it('applies the kit scale and can leave out previews', () => {
+    const [booster] = kitAssets({ ...kit, scale: 2, previews: false }, '/pumps');
+    expect(booster!.scale).toBe(2);
+    expect(booster!.preview).toBeUndefined();
+    expect(booster!.url).toBe('/pumps/booster.glb');
   });
 });
 

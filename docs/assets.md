@@ -47,7 +47,7 @@ interface ModelAsset {
 
 Models normally sit with their lowest point on the floor, whatever the file's origin. A `mounted` asset (e.g. a wall regulator panel) is authored at its mounting height above the origin, and the viewer keeps that height; its `size.height` is the height of its top above the floor. `marker.elevation` raises or lowers any model on top of that.
 
-`size` drives the editor footprint and the viewer's placeholder box. The viewer centers the loaded model on the marker by the model's own bounding box, whatever pivot the file has. Helpers in `@vespenelabs/floorview/model`: `indexAssets(list)`, `markerFootprint(marker, asset)` (rotated corners in plan meters) and `rotatePoint`.
+`size` drives the editor footprint and the viewer's placeholder box. The viewer centers the loaded model on the marker by the model's own bounding box, whatever pivot the file has. Helpers in `@vespenelabs/floorview/model`: `kitAssets(kit, baseUrl)` and `kitAssetId(kit, model)` for your own kits (see [Making your own kit](#making-your-own-kit)), `indexAssets(list)`, `markerFootprint(marker, asset)` (rotated corners in plan meters) and `rotatePoint`.
 
 ## Viewer
 
@@ -68,6 +68,51 @@ Models normally sit with their lowest point on the floor, whatever the file's or
 - `setMarkerTemplate({ name, kind, model, rotation?, scale?, color?, data? } | null)`: the marker tool places copies of the template, numbered "Desk 1", "Desk 2"…, with a dashed preview of the footprint under the cursor. `getMarkerTemplate()` returns the current template and the `templatechange` event fires when it changes.
 - `Q` / `E` rotate by 15° (`Shift`: 90°). While a template with a model is active, they rotate the template; otherwise they rotate the selected marker. `rotateSelection(degrees)` does the same from code, as one undo step.
 - `Esc` in the marker tool with a template clears the template and switches to select.
+
+## Making your own kit
+
+Apps add their own models without changing Floorview: any `ModelAsset[]` works, alone or mixed with the bundled kits. The usual way is a **kit**: a folder of GLBs served by your app plus a small catalog, turned into assets by `kitAssets` (in `@vespenelabs/floorview` and `/model`; the Gas kit is built the same way).
+
+```ts
+import { FloorplanEditor, FloorplanViewer, kitAssets, type ModelKit } from '@vespenelabs/floorview';
+import { gasAssets } from '@vespenelabs/floorview/gas';
+
+export const PUMPS: ModelKit = {
+  prefix: 'acme/pumps',             // ids: acme/pumps/<model>
+  category: 'Pumps',                // picker group
+  models: [
+    // [file name, display name, width, depth, height, description?, mounted?] (meters)
+    ['booster', 'Booster pump', 0.6, 0.4, 0.8, 'Booster pump skid (0.6 × 0.4 m); drawn as a small rectangle. Synonyms: pressure pump.'],
+    ['control-panel', 'Pump control panel', 0.5, 0.2, 1.7, 'Wall-mounted pump control panel at 1.2–1.7 m.', true],
+    // or objects: { model, name, size: { width, depth, height }, description?, mounted?, ai?, scale?, category? }
+  ],
+};
+
+const assets = [...kitAssets(PUMPS, '/models/pumps'), ...gasAssets('/floorview-assets/gas')];
+const viewer = new FloorplanViewer(viewerEl, { plan, assets });
+const editor = new FloorplanEditor(editorEl, { plan, assets });
+```
+
+`kitAssets(kit, baseUrl)` expects `<baseUrl>/<model>.glb` and, unless `previews: false`, a thumbnail at `<baseUrl>/previews/<model>.png`. `kitAssetId(kit, model)` gives a model's id (e.g. for `editor.setMarkerTemplate`). Assets can be swapped at runtime with `viewer.setAssets()` / `editor.setAssets()`, and the same list goes to the [AI architect](architect.md#3d-models) so it can place your models.
+
+**Model rules** (what the viewer and editor assume):
+
+| Rule | |
+| --- | --- |
+| Format | glTF 2.0 binary (`.glb`); textures embedded or next to it (relative URLs resolve against the GLB). |
+| Units | Meters. Other units: set the kit's (or a model's) `scale`. |
+| Facing | The front faces glTF **+Z**, which is plan +y (down the page) at rotation 0. Blender's exporter turns −Y into +Z. |
+| Origin | Anything: the viewer centers the model on the marker by its bounding box and sets its lowest point on the floor. |
+| Wall-mounted | Author the model at its mounting height above the origin (the floor) and set `mounted`: the viewer then keeps that height. `size.height` is the top's height above the floor. |
+| Size | `size` is the bounding box in meters (`width` x, `depth` plan y, `height` up). It drives the editor footprint and the loading placeholder, so measure it from the file. |
+| Accent | Name materials `accent…` for the parts that should take the marker color in the clay look (valves, pipes, knobs); without them the whole model is tinted. |
+| Look | Models are always drawn as clay (matte neutral shaded by the original brightness), so shape matters more than texture; keep geometry light (instances are clones). |
+
+**Ids.** Plans store only ids, so pick a `prefix` that is yours (`<company>/<kit>`, not `floorview/…`) and never rename models once plans use them. If two kits share an id, the later asset in the list wins.
+
+**Descriptions.** One or two plain sentences: what it is, its size, how it looks on a plan drawing, where it is used, synonyms. They feed the asset search and the AI architect's matching; set `ai: false` for models that should not be suggested (parts, decor).
+
+**Previews.** A small PNG (64–128 px) per model in `previews/`, rendered in a light neutral look so it matches the viewer. The Gas kit's Blender script (below) shows one way: build from code, export the GLB, render the preview and write the catalog in one run.
 
 ## The Gas kit (`@vespenelabs/floorview/gas`)
 

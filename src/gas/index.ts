@@ -10,30 +10,24 @@
  *
  * Models have real-world sizes (scale 1) and an `accent` material: in the viewer's clay look the
  * body stays neutral and the accent parts (cylinders, pipes, ducts, valves) take the marker color.
- * Pure data (no Three.js, no DOM).
+ * Pure data (no Three.js, no DOM). It is a plain {@link ModelKit}, the same shape apps use for
+ * their own kits.
  */
-import type { ModelAsset } from '../model/assets';
+import { kitAssetId, kitAssets, type ModelAsset, type ModelKit } from '../model/assets';
 import { GAS_MODELS } from './catalog';
 
 /** Category label of the kit's assets. */
 export const GAS_CATEGORY = 'Gas';
 
+/** The Gas kit as a `ModelKit` (ids `floorview/gas/<model>`). */
+export const GAS_KIT: ModelKit = { prefix: 'floorview/gas', category: GAS_CATEGORY, models: GAS_MODELS };
+
 /** Asset id of a Gas kit model, e.g. `gasAssetId('gas-cabinet')` → `"floorview/gas/gas-cabinet"`. */
 export function gasAssetId(model: string): string {
-  return `floorview/gas/${model}`;
+  return kitAssetId(GAS_KIT, model);
 }
 
 /** The Gas kit as `ModelAsset`s. `baseUrl` is where `assets/gas` is served, with or without a trailing slash. */
 export function gasAssets(baseUrl: string): ModelAsset[] {
-  const base = baseUrl.replace(/\/+$/, '');
-  return GAS_MODELS.map(([model, name, width, depth, height, description, mounted]) => ({
-    id: gasAssetId(model),
-    name,
-    url: `${base}/${model}.glb`,
-    preview: `${base}/previews/${model}.png`,
-    category: GAS_CATEGORY,
-    size: { width, depth, height },
-    description,
-    ...(mounted ? { mounted: true } : {}),
-  }));
+  return kitAssets(GAS_KIT, baseUrl);
 }
