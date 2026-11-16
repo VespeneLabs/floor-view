@@ -11,6 +11,7 @@ import { buildHighlight, resolveFocus, type FocusOptions, type FocusTarget } fro
 import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type HeatmapGrid } from './heatmap';
 import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
 import { applyModelStyle, ModelCache, type ModelStyle } from './models';
+import { PIPE_MIN_PIXELS, PipelineFlow, updatePipeWidths, type FlowDirection, type PipelineUserData } from './pipelines';
 import { PointLayerView } from './pointLayer';
 import {
   buildPlan,
@@ -41,6 +42,12 @@ export interface ViewerOptions {
   movableMarkers?: boolean;
   /** Grid (m) that dragged markers snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
   moveGrid?: number;
+  /**
+   * Minimum on-screen width of a pipeline in pixels: thin pipes are drawn thicker from far away so
+   * they stay visible, and at their real diameter up close. 0 always draws the real diameter.
+   * Default 2.5. See `setPipeMinWidth`.
+   */
+  pipeMinWidth?: number;
 }
 
 /** `markermove`: a marker was dragged in the viewer and dropped at `position` (plan meters, snapped). */
@@ -120,6 +127,7 @@ export class FloorplanViewer {
   private showModels: boolean;
   private movableMarkers: boolean;
   private moveGrid: number;
+  private pipeMinWidth: number;
   private markerDrag: {
     id: string;
     levelId: string;
@@ -133,6 +141,12 @@ export class FloorplanViewer {
   private ghost: { spec: Ghost; mesh: THREE.Mesh } | null = null;
   /** Host-managed state colors by marker id (`setMarkerTints`), kept across `setPlan`. */
   private tints = new Map<string, string>();
+  /** Host-managed state colors by pipeline id (`setPipelineTints`), kept across `setPlan`. */
+  private pipeTints = new Map<string, string>();
+  /** Flow animations by pipeline id (`setPipelineFlow`), kept across `setPlan`. */
+  private flows = new Map<string, FlowDirection>();
+  /** The flow beads in the scene, rebuilt with the plan. */
+  private flowViews: { levelId: string; view: PipelineFlow }[] = [];
 
   private controls: OrbitControls;
   private plan: FloorPlan | null = null;
@@ -164,6 +178,7 @@ export class FloorplanViewer {
     this.showModels = options.showModels ?? true;
     this.movableMarkers = options.movableMarkers ?? false;
     this.moveGrid = options.moveGrid ?? 0.25;
+    this.pipeMinWidth = Math.max(0, options.pipeMinWidth ?? PIPE_MIN_PIXELS);
 
     this.element = document.createElement('div');
     this.element.className = 'vl-viewer';
@@ -256,6 +271,8 @@ export class FloorplanViewer {
     this.updateHighlight();
     this.applyModelVisibility();
     this.applyTints();
+    for (const id of this.pipeTints.keys()) this.applyPipelineTint(id);
+    this.attachFlows();
     this.loadModels();
     if (fit ?? first) this.fitView();
     this.requestRender();
@@ -335,6 +352,69 @@ export class FloorplanViewer {
   /** The current marker tints by id. */
   getMarkerTints(): Record<string, string> {
     return Object.fromEntries(this.tints);
+  }
+
+  /**
+   * Tint pipelines with a state color (e.g. red for a leak alarm), by pipeline id; null removes a
+   * tint. The tint replaces the pipe's color (supports keep theirs). Like marker tints, it is
+   * display state: applied in place, kept across `setPlan`. `replace: true` clears every tint
+   * not in `tints` first.
+   */
+  setPipelineTints(tints: Record<string, string | null>, { replace = false }: { replace?: boolean } = {}): void {
+    const changed = new Set(replace ? this.pipeTints.keys() : []);
+    if (replace) this.pipeTints.clear();
+    for (const [id, color] of Object.entries(tints)) {
+      if (color) this.pipeTints.set(id, color);
+      else this.pipeTints.delete(id);
+      changed.add(id);
+    }
+    for (const id of changed) this.applyPipelineTint(id);
+    this.requestRender();
+  }
+
+  /** Minimum on-screen width of pipelines in pixels; 0 always draws the real diameter (see `ViewerOptions.pipeMinWidth`). */
+  setPipeMinWidth(pixels: number): void {
+    this.pipeMinWidth = Number.isFinite(pixels) ? Math.max(0, pixels) : PIPE_MIN_PIXELS;
+    this.requestRender();
+  }
+
+  getPipeMinWidth(): number {
+    return this.pipeMinWidth;
+  }
+
+  /** Tint one pipeline (see `setPipelineTints`), or remove its tint with null. */
+  setPipelineTint(id: string, color: string | null): void {
+    this.setPipelineTints({ [id]: color });
+  }
+
+  /** The current pipeline tints by id. */
+  getPipelineTints(): Record<string, string> {
+    return Object.fromEntries(this.pipeTints);
+  }
+
+  /**
+   * Show the flow in a pipeline as beads moving along it: `'forward'` from its first point to its
+   * last, `'reverse'` the other way, null to stop. Kept across `setPlan`. While beads are visible
+   * the viewer renders every frame; with reduced motion they stand still.
+   */
+  setPipelineFlow(id: string, direction: FlowDirection | null): void {
+    this.setPipelineFlows({ [id]: direction });
+  }
+
+  /** Set several flows at once (see `setPipelineFlow`). `replace: true` stops every flow not in `flows`. */
+  setPipelineFlows(flows: Record<string, FlowDirection | null>, { replace = false }: { replace?: boolean } = {}): void {
+    if (replace) this.flows.clear();
+    for (const [id, direction] of Object.entries(flows)) {
+      if (direction) this.flows.set(id, direction);
+      else this.flows.delete(id);
+    }
+    this.attachFlows();
+    this.requestRender();
+  }
+
+  /** The current pipeline flows by id. */
+  getPipelineFlows(): Record<string, FlowDirection> {
+    return Object.fromEntries(this.flows);
   }
 
   /** Show a translucent placement box (e.g. while an asset is dragged over the viewer), or remove it with null. */
@@ -505,7 +585,7 @@ export class FloorplanViewer {
   /**
    * Center the camera on a data point, plan entity or position (keeping the current zoom),
    * switching to its level when it isn't visible, and highlight it with a ring (points, markers,
-   * positions) or an outline (rooms, walls). The highlight stays until `clearHighlight()`, the
+   * positions) or an outline (rooms, walls, pipelines). The highlight stays until `clearHighlight()`, the
    * next `focus()` or its `duration`; it follows a focused point when its layer updates.
    * Returns false when the target doesn't exist.
    */
@@ -668,6 +748,7 @@ export class FloorplanViewer {
     this.frame = requestAnimationFrame(this.loop);
     if (this.pan) this.stepPan(time);
     if (this.animateBeams(time)) this.dirty = true;
+    if (this.animateFlows(time)) this.dirty = true;
     if (this.dirty) this.render();
   };
 
@@ -704,15 +785,68 @@ export class FloorplanViewer {
     return animating;
   }
 
+  /** Move the flow beads; true while any are visible and motion is allowed. */
+  private animateFlows(time: number): boolean {
+    if (this.reducedMotion?.matches || this.flowViews.length === 0) return false;
+    const shown = this.shownLevelIds();
+    let animating = false;
+    for (const { levelId, view } of this.flowViews) {
+      if (!shown.has(levelId)) continue;
+      view.update(time);
+      animating = true;
+    }
+    return animating;
+  }
+
+  /** Rebuild the flow beads for the current plan and `flows`. */
+  private attachFlows(): void {
+    for (const { view } of this.flowViews) {
+      view.group.removeFromParent();
+      disposeObject(view.group);
+    }
+    this.flowViews = [];
+    for (const b of this.built) {
+      const level = this.levelById(b.levelId);
+      for (const pipe of level?.pipelines ?? []) {
+        const direction = this.flows.get(pipe.id);
+        if (!direction || !b.pipelines.has(pipe.id)) continue;
+        const view = new PipelineFlow(pipe, direction);
+        b.group.add(view.group);
+        this.flowViews.push({ levelId: b.levelId, view });
+      }
+    }
+  }
+
+  /** Apply the current tint (or none) of one pipeline to its pipe material, in place. */
+  private applyPipelineTint(id: string): void {
+    const tint = this.pipeTints.get(id);
+    for (const b of this.built) {
+      const data = b.pipelines.get(id)?.userData.pipeline as PipelineUserData | undefined;
+      if (data) toThreeColor(tint ?? data.baseColor, data.material.color);
+    }
+  }
+
   private onReducedMotionChange = (): void => {
     if (this.reducedMotion?.matches) for (const view of this.pointViews.values()) view.updateBeams(null);
+    if (this.reducedMotion?.matches) for (const { view } of this.flowViews) view.update(null);
     this.requestRender();
   };
 
   private render(): void {
     this.dirty = false;
+    this.fitPipeWidths();
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+  }
+
+  /** Thicken distant pipes (and their flow beads) to the minimum on-screen width. */
+  private fitPipeWidths(): void {
+    const height = this.element.clientHeight;
+    for (const b of this.built) {
+      if (!b.group.visible) continue;
+      for (const group of b.pipelines.values()) updatePipeWidths(group, this.camera, height, this.pipeMinWidth);
+    }
+    for (const { view } of this.flowViews) updatePipeWidths(view.group, this.camera, height, this.pipeMinWidth);
   }
 
   /** Swap each model slot's placeholder for the loaded model (if the slot is still in the scene). */
@@ -873,6 +1007,7 @@ export class FloorplanViewer {
       this.planGroup.remove(b.group);
     }
     this.built = [];
+    this.flowViews = []; // disposed with their level groups
     this.hovered = null;
     this.hoveredMesh = null;
     this.tooltip.hidden = true;
@@ -1044,6 +1179,12 @@ export class FloorplanViewer {
       return (point && layer?.tooltip?.(point)) || null;
     }
     if (pick.kind === 'marker') return level.markers.find((m) => m.id === pick.id)?.name || null;
+    if (pick.kind === 'pipeline') {
+      const pipe = level.pipelines.find((p) => p.id === pick.id);
+      if (!pipe) return null;
+      const parts = [pipe.name, pipe.medium, `Ø ${Math.round(pipe.diameter * 1000)} mm`].filter(Boolean);
+      return parts.join(' · ');
+    }
     return null;
   }
 
@@ -1084,9 +1225,9 @@ export class FloorplanViewer {
 
   private setHover(mesh: THREE.Mesh | null): void {
     const setEmissive = (m: THREE.Mesh | null, color: THREE.Color | number) => {
-      // A part of a 3D model lights up the whole model.
+      // A part of a 3D model (or of a pipeline) lights up the whole model (or pipeline).
       let slot: THREE.Object3D | null = m;
-      while (slot && !slot.userData.modelSlot) slot = slot.parent;
+      while (slot && !slot.userData.modelSlot && !slot.userData.pipeline) slot = slot.parent;
       const meshes: THREE.Mesh[] = [];
       if (slot) slot.traverse((o) => void ((o as THREE.Mesh).isMesh && meshes.push(o as THREE.Mesh)));
       else if (m) meshes.push(m);

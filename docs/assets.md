@@ -116,12 +116,12 @@ const editor = new FloorplanEditor(editorEl, { plan, assets });
 
 ## The Gas kit (`@vespenelabs/floorview/gas`)
 
-65 industrial gas and cleanroom models made for Floorview (including four wall-mounted pressure regulators: `cylinder-regulator`, `point-of-use-regulator`, `regulator-panel-2` and `regulator-panel-4`, authored at 1.3 m and marked `mounted`), in the same clean "white model with accents" style:
+66 industrial gas and cleanroom models made for Floorview (including four wall-mounted pressure regulators: `cylinder-regulator`, `point-of-use-regulator`, `regulator-panel-2` and `regulator-panel-4`, authored at 1.3 m and marked `mounted`, and a floor-standing `pipe-floor-support`), in the same clean "white model with accents" style:
 
 | Group | Models |
 | --- | --- |
 | Cylinders and bulk supply | gas cylinder, cylinder bank, cylinder cart, cylinder bundle (12-pack), cylinder storage cage, tube trailer, ISO tube container (MEGC), cryogenic bulk tank, ambient air vaporizer, nitrogen generator (PSA), hydrogen generator (electrolyser), air compressor skid, gas purifier |
-| Cabinets and distribution | gas cabinet, BSGS cabinet, valve manifold panel, valve manifold box (VMB), gas mixing panel, overhead pipe run (2 m, 4 m), corner, tee and riser, exhaust duct run and corner, cable tray run, electrical cabinet |
+| Cabinets and distribution | gas cabinet, BSGS cabinet, valve manifold panel, valve manifold box (VMB), gas mixing panel, overhead pipe run (2 m, 4 m), corner, tee and riser, pipe support, exhaust duct run and corner, cable tray run, electrical cabinet |
 | Safety | gas detection post, emergency shower / eyewash, fire extinguisher stand, safety storage cabinet, ESD push-button post |
 | Cleanroom, fab and lab | process tool, cluster tool (EFEM with load ports), wafer stocker, chemical dispense cabinet, pass box, gowning bench, laminar flow hood, fume hood, lab workbench, lab stool |
 | Plant and exhaust | scrubber tower, exhaust stack, exhaust fan, chiller, air handling unit |
@@ -135,6 +135,36 @@ const assets = [...gasAssets('/floorview-assets/gas'), ...kenneyAssets('/floorvi
 ```
 
 **Accent parts.** The models use five materials: `body`, `panel`, `metal`, `dark` and `accent`. In the clay look the body stays neutral, and only `accent` parts (cylinders, pipes, ducts, valve wheels, indicator bands) take color: the marker's `color` (without one they are white like the rest). Any model can use this convention: name a material `accent…` and the viewer colors only those parts. Models without accent materials, such as the Kenney kits, are tinted whole by the marker color.
+
+### Pipe media
+
+`GAS_MEDIA` lists the media of gas installations as `PipeMedium` presets (`{ id, name, color, diameter }`). A pipeline stores only `medium: id`; the preset's color and typical diameter are copied into `pipeline.color` / `pipeline.diameter`, so plans never depend on the list.
+
+| id | Medium | Color | Ø |
+| --- | --- | --- | --- |
+| `NG` | Natural gas | `#facc15` yellow | 50 mm |
+| `LPG` | LPG | `#f59e0b` amber | 25 mm |
+| `H2` | Hydrogen | `#dc2626` red | 15 mm |
+| `O2` | Oxygen | `#2563eb` blue | 15 mm |
+| `N2` | Nitrogen | `#334155` dark slate | 25 mm |
+| `Ar` | Argon | `#15803d` dark green | 15 mm |
+| `He` | Helium | `#92400e` brown | 12 mm |
+| `CO2` | Carbon dioxide | `#6b7280` grey | 15 mm |
+| `CDA` | Compressed air | `#0ea5e9` light blue | 25 mm |
+| `VAC` | Vacuum | `#d4d4d8` light grey | 50 mm |
+| `EXH` | Process exhaust | `#c2410c` orange | 200 mm |
+
+The colors follow common practice (yellow fuel gas, blue oxygen, cylinder-shoulder colors for inert gases) and are chosen to stay apart on screen; they are not a normative marking scheme. Apps with other conventions pass their own `PipeMedium[]`.
+
+```ts
+import { gasMedium } from '@vespenelabs/floorview/gas';
+const n2 = gasMedium('N2')!;
+editor.setPipeSettings({ medium: n2.id, color: n2.color, diameter: n2.diameter, name: n2.name }); // "Nitrogen 1, 2…"
+```
+
+Fittings from the kit (valve boxes, regulators, the old `pipe-run`/`pipe-tee` models) snap onto drawn pipelines with the marker tool; see [editor](editor.md#pipelines). The old pipe section models (`pipe-run`, `pipe-run-long`, `pipe-run-corner`, `pipe-run-tee`, `pipe-riser`) are `ai: false`: the AI assistant draws pipelines instead, and takes `GAS_MEDIA` as its media list (see [architect](architect.md#pipelines)).
+
+**Pipe supports.** The viewer draws pipelines without supports. For a realistic plan, place **Pipe support** (`pipe-floor-support`) markers along a run: with the marker tool they snap under the pipe and turn across it, and since the model is `mounted` they stay on the floor instead of being raised to the pipe. The model holds one pipe at 2.6 m, the editor's default pipe height.
 
 **Building them.** The models are made from code in Blender (5.x), so they can be tweaked and regenerated:
 

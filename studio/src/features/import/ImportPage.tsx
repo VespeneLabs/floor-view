@@ -25,7 +25,7 @@ const STEPS: { id: Step; label: string }[] = [
 
 const BUILDING_TYPES = ['Factory', 'Warehouse / logistics', 'Mixed production and offices', 'Office building', 'Other'];
 const FLOORS = ['1 floor', '1 floor with mezzanine', '2 floors', '3 or more floors'];
-const INCLUDE = ['Rooms and areas', MODELS_OPTION, 'Exits and doors', 'Loading docks', 'Fire safety equipment'];
+const INCLUDE = ['Rooms and areas', MODELS_OPTION, 'Pipes and gas lines', 'Exits and doors', 'Loading docks', 'Fire safety equipment'];
 
 function Stepper({ step }: { step: Step }) {
   const index = STEPS.findIndex((s) => s.id === step);

@@ -33,6 +33,8 @@ studio/
     lib/theme.ts              light/dark theme store (useTheme / setTheme)
     lib/route.ts              hash-based page routing (useRoute / navigate)
     components/Panel.tsx      titled card used by editor, viewer and inspector
+    components/CommitInput.tsx  input that commits on the native change event (one undo step per edit)
+    components/MediumSelect.tsx  pipe medium picker over GAS_MEDIA (used by the pipe toolbar and the inspector)
     components/VespeneLabsMark.tsx  decolorized Vespene Labs logo pinned to the bottom of the right-hand panels (mask from assets/vespenelabs-logo-mask.png)
     components/ui/            shadcn/ui components (generated, adapted in place)
     features/
@@ -50,10 +52,12 @@ studio/
 Pages are chosen by URL hash (`src/lib/route.ts`, no router package). The editor page stays mounted while hidden, because the editor instance owns the plan and its undo history.
 
 - **Editor** (`#/`): the 2D editor, a live 3D viewer with demo layers, the asset library and the property inspector. Models are drawn as white clay; the inspector's accent color colors a selected model's accent parts, and the viewer's **Assets** toggle shows or hides all models. Drag a model from the asset library onto the 3D view (a box previews where it lands) or the 2D editor to add it; drag models in the 3D view to move them (snapped to 25 cm, Alt for free), and with the 3D view focused `Q`/`E` rotate, `Page Up`/`Page Down` raise or lower the selected model (10 cm, `Shift`: 50 cm; also the inspector's "Height above floor") and `Delete` removes the selection. Picking (clicking) a model in the asset library sets the editor's marker template and switches to the marker tool (click to place, `Q`/`E` rotate, `Esc` stops). File → Load 3D assets demo loads `createKenneyDemoPlan()`.
+  - **Pipelines:** **Draw pipes** (`P`, next to Draw walls) shows a sub-toolbar with the medium (Gas kit presets: picking one sets the pipe color, a typical diameter and the name, e.g. "Nitrogen 1"), the current height and Ø. `[`/`]` or `Page Up`/`Page Down` change the height while drawing (a riser). The inspector edits a selected pipeline's name, medium (a new preset recolors it, and renames it if it still has its medium's name), Ø and color, and lists its points as an editable x / y / z table; x / y of an end connected to equipment are locked, because the end follows the equipment. Fittings show which pipeline they sit on. Clicking one piece of equipment and then another with the pipe tool routes the pipeline between them automatically, and the inspector's **Route automatically** button routes the selected pipeline again. A selected pipeline has a grip on each segment to slide it sideways, and `Delete` removes the vertex clicked last. The viewer's **Flow** toggle animates every pipeline.
 - **Air quality** (`#/air-quality`, `features/air-quality/`): monitoring for the current plan, with one simulated sensor per room.
   - **Metrics:** CO₂, temperature, humidity and PM2.5. Each has color stops and labelled bands (Good/Moderate/Poor, or Cold/Comfortable/Warm…) in `metrics.ts`.
   - **Map:** a heatmap layer plus neutral room floors with value tooltips, and sensor spheres whose tooltips show all four metrics. Each sensor shows its current value as a point label (**Values on plan** toggles them), and sensors in the worst band get an alert ring. Layers are re-set every tick and update in place.
   - **Controls:** a time-of-day slider with day playback. The sidebar has a legend, a good/moderate/poor summary and the rooms sorted worst-first; clicking a room focuses its sensor on the plan (`viewer.focus`, highlighted for 4 s).
+  - **Pipelines:** a pipeline that runs through a room with a poor reading is tinted in the alert color (`viewer.setPipelineTints`) and listed in the sidebar; clicking it focuses it (`viewer.focus({ kind: 'pipeline' })`). The demo has no gas detectors, so a poor room stands in for a leak alarm (`pipelineAlerts` in `simulation.ts`).
   - **Data:** `simulation.ts` models an office day (people drive CO₂, humidity and temperature; the kitchen spikes PM2.5 at lunch; the server room runs hot). It is deterministic, so scrubbing the timeline is reproducible. Replace it with real sensor data behind the same shapes.
 
 ### AI import (`#/import`, `features/import/`)
@@ -77,7 +81,7 @@ API settings: adaptive thinking with summarized display (shown as a status line)
 - The **editor owns the plan**. `useEditorSnapshot` subscribes to editor events with `useSyncExternalStore` and exposes `{ plan, selection, tool, levelId, canUndo, canRedo }`. UI actions call editor methods, and the resulting events re-render the UI.
 - The **viewer follows the snapshot**: effects call `viewer.setPlan`, `setLevel`, `setMode`, `setShowLabels`, `setLayer` and `setBackground` (on theme change). A viewer click selects the entity in the editor.
 - The **theme** reaches the library through CSS variables. `.vl-studio .vl-editor` maps `--vl-*` to app tokens, so the editor and viewer switch between light and dark with the rest of the UI.
-- **3D models:** `lib/assets.ts` builds the asset list with `kenneyAssets(BASE_URL + 'kenney')` and passes it to the editor and viewers. The repo's `assets/` folder is Studio's Vite `publicDir`, so the GLB files are served in dev and copied into the static build.
+- **3D models:** `lib/assets.ts` builds the asset list with `gasAssets(BASE_URL + 'gas')` and `kenneyAssets(BASE_URL + 'kenney')` and passes it to the editor and viewers. The repo's `assets/` folder is Studio's Vite `publicDir`, so the GLB files are served in dev and copied into the static build.
 - The plan is autosaved to `localStorage` (`vespenelabs.plan`) and validated with `parsePlanJSON` on load. File → Import/Export reads and writes plan JSON.
 
 Coding conventions for Studio are in `.claude/rules/react.md` and `.claude/rules/styling.md`.

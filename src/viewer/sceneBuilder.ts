@@ -4,11 +4,12 @@ import { polygonCentroid } from '../model/geometry';
 import { toThreeColor } from './color';
 import type { FloorPlan, Level } from '../model/types';
 import type { PointLayer } from './layers';
+import { buildPipelines } from './pipelines';
 import { PointLayerView } from './pointLayer';
 
 /** What a pickable mesh represents. Stored on `mesh.userData.pick`. */
 export interface PickInfo {
-  kind: 'wall' | 'room' | 'marker' | 'point';
+  kind: 'wall' | 'room' | 'marker' | 'pipeline' | 'point';
   id: string;
   levelId: string;
   /** Set for `kind: 'point'`. */
@@ -24,6 +25,8 @@ export interface SceneColors {
   highlight: string;
   /** Base color of 3D models (they are drawn decolorized, see `marker.color` for accents). */
   model: string;
+  /** Pipelines without their own `color`. */
+  pipe: string;
 }
 
 export const DEFAULT_SCENE_COLORS: SceneColors = {
@@ -33,6 +36,7 @@ export const DEFAULT_SCENE_COLORS: SceneColors = {
   point: '#f97316',
   highlight: '#facc15',
   model: '#eef1f5',
+  pipe: '#ca8a04',
 };
 
 /** Height of room floors above the level elevation, to avoid z-fighting. */
@@ -47,6 +51,8 @@ export interface BuiltLevel {
   markers: Map<string, THREE.Object3D>;
   /** Markers that show a 3D model, each with a placeholder box until the viewer loads the model. */
   models: ModelSlot[];
+  /** One group per pipeline (see `buildPipelines`); `group.userData.pipeline` holds its material. */
+  pipelines: Map<string, THREE.Group>;
   /** Room label anchors (centroid, slightly above the floor), in level-local coordinates. */
   labelAnchors: { roomId: string; text: string; position: THREE.Vector3 }[];
 }
@@ -86,6 +92,7 @@ export function buildLevel(
     walls: new Map(),
     markers: new Map(),
     models: [],
+    pipelines: new Map(),
     labelAnchors: [],
   };
 
@@ -157,6 +164,9 @@ export function buildLevel(
     group.add(mesh);
     built.markers.set(marker.id, mesh);
   }
+
+  built.pipelines = buildPipelines(level, colors.pipe, (mesh, id) => tag(mesh, { kind: 'pipeline', id, levelId: level.id }));
+  for (const g of built.pipelines.values()) group.add(g);
 
   return built;
 }

@@ -1,18 +1,21 @@
-import type { ArchitectAsset, ArchitectContentBlock, ArchitectEvent, ArchitectMessage, ArchitectRequest } from '../protocol';
+import type { ArchitectAsset, ArchitectContentBlock, ArchitectEvent, ArchitectMedium, ArchitectMessage, ArchitectRequest } from '../protocol';
 import { ARCHITECT_SYSTEM, ARCHITECT_TOOL_DEFINITIONS, type ArchitectToolDefinition } from './agent';
-import { formatAssetCatalog } from './catalog';
+import { formatAssetCatalog, formatMediaCatalog } from './catalog';
 
 /** What a model adapter receives for one turn. */
 export interface ArchitectTurnInput {
   /**
-   * System prompt parts, in order: the agent's prompt, the host's `extraInstructions`, then the
-   * asset catalog (`formatAssetCatalog`). All stable across turns: cache up to the last part.
+   * System prompt parts, in order: the agent's prompt, the host's `extraInstructions`, the pipe
+   * media (`formatMediaCatalog`), then the asset catalog (`formatAssetCatalog`). All stable across
+   * turns: cache up to the last part.
    */
   system: string[];
   tools: ArchitectToolDefinition[];
   messages: ArchitectMessage[];
   /** The models the assistant may place (already in `system` as text), e.g. for a search tool. */
   assets: ArchitectAsset[];
+  /** The pipe media the assistant may use (already in `system` as text). */
+  media: ArchitectMedium[];
 }
 
 /** Token usage of one model turn (server side only; never sent to the browser). */
@@ -55,6 +58,8 @@ export interface ArchitectLimits {
   maxAssets: number;
   /** Total characters of the asset catalog's text fields (about 4 per token). Default 400,000. */
   maxCatalogChars: number;
+  /** Entries in the request's pipe media list. Default 200. */
+  maxMedia: number;
 }
 
 export const DEFAULT_ARCHITECT_LIMITS: ArchitectLimits = {
@@ -64,6 +69,7 @@ export const DEFAULT_ARCHITECT_LIMITS: ArchitectLimits = {
   maxTextChars: 2_000_000,
   maxAssets: 2000,
   maxCatalogChars: 400_000,
+  maxMedia: 200,
 };
 
 /** An invalid or oversized request. `status` is the HTTP status to answer with (400 or 413). */
@@ -131,6 +137,25 @@ function parseAssets(raw: unknown, max: ArchitectLimits): ArchitectAsset[] {
   return assets;
 }
 
+/** Validates the optional pipe media list of a request (shape, field lengths, count). */
+function parseMedia(raw: unknown, max: ArchitectLimits): ArchitectMedium[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new ArchitectRequestError('media must be an array.', 400);
+  if (raw.length > max.maxMedia) throw new ArchitectRequestError(`Too many pipe media (${raw.length}, limit ${max.maxMedia}).`, 413);
+  const seen = new Set<string>();
+  return raw.map((m: unknown, i): ArchitectMedium => {
+    const bad = (why: string) => new ArchitectRequestError(`media[${i}] ${why}`, 400);
+    if (!isObj(m)) throw bad('must be an object.');
+    const { id, name, diameter } = m;
+    if (typeof id !== 'string' || !/^[^\s<>|]{1,60}$/.test(id)) throw bad('needs an id of 1-60 characters without spaces, "<", ">" or "|".');
+    if (seen.has(id)) throw bad(`repeats the id "${id}".`);
+    seen.add(id);
+    if (typeof name !== 'string' || name.length > 100) throw bad('needs a name of at most 100 characters.');
+    if (typeof diameter !== 'number' || !Number.isFinite(diameter) || diameter <= 0 || diameter > 10) throw bad('needs a diameter in meters (above 0, at most 10).');
+    return { id, name, diameter };
+  });
+}
+
 /**
  * Validates a request body (already JSON-parsed) against the protocol and the limits. Throws
  * `ArchitectRequestError` with a 400 or 413 status. Call it before starting to stream so the
@@ -163,7 +188,8 @@ export function parseArchitectRequest(body: unknown, limits: Partial<ArchitectLi
   }
   if (totals.textChars > max.maxTextChars) throw new ArchitectRequestError('The conversation is too long. Start a new one.', 413);
   const assets = parseAssets(body.assets, max);
-  return { messages: messages as ArchitectMessage[], ...(assets.length ? { assets } : {}) };
+  const media = parseMedia(body.media, max);
+  return { messages: messages as ArchitectMessage[], ...(assets.length ? { assets } : {}), ...(media.length ? { media } : {}) };
 }
 
 export interface RunArchitectTurnOptions {
@@ -174,6 +200,8 @@ export interface RunArchitectTurnOptions {
    * are ignored (use it when the browser must not decide what goes into the prompt).
    */
   assets?: ArchitectAsset[];
+  /** The pipe media the assistant may use, chosen by the server. When set, the request's `media` are ignored. */
+  media?: ArchitectMedium[];
   /** Abort the turn (e.g. when the client disconnects). */
   signal?: AbortSignal;
   limits?: Partial<ArchitectLimits>;
@@ -209,11 +237,14 @@ export async function* runArchitectTurn(
   const extra = options.extraInstructions?.trim();
   const assets = options.assets ?? parsed.assets ?? [];
   const catalog = formatAssetCatalog(assets);
+  const media = options.media ?? parsed.media ?? [];
+  const mediaList = formatMediaCatalog(media);
   const input: ArchitectTurnInput = {
-    system: [ARCHITECT_SYSTEM, ...(extra ? [extra] : []), ...(catalog ? [catalog] : [])],
+    system: [ARCHITECT_SYSTEM, ...(extra ? [extra] : []), ...(mediaList ? [mediaList] : []), ...(catalog ? [catalog] : [])],
     tools: ARCHITECT_TOOL_DEFINITIONS,
     messages: parsed.messages,
     assets,
+    media,
   };
   try {
     for await (const event of model.streamTurn(input, { signal, onUsage: options.onUsage })) {

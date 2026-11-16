@@ -7,7 +7,8 @@ const HINTS: Record<EditorTool, string> = {
   select: 'Click to select · drag to move · drag handles to reshape · drag empty space to pan · Del deletes · scroll zooms',
   wall: 'Click to start, click each corner · click the same point twice, right-click or Esc to stop · Shift: 45° · Alt: no snap',
   room: 'Click the corners · click the first corner, Enter or right-click to close · Esc cancels · Shift: 45° · Alt: no snap',
-  marker: 'Click to place a marker · Alt: no snap',
+  marker: 'Click to place a marker; near a pipe it sits on the pipe · Alt: no snap',
+  pipe: 'Click each point · [ / ] or Page Up/Down: height (Shift: 1 m) · click equipment or a pipe to connect · Enter, right-click or click twice to finish · Esc cancels · Shift: 45° · Alt: no snap',
   pan: 'Drag to pan · scroll to zoom',
 };
 

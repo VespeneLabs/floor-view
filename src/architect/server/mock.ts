@@ -1,4 +1,4 @@
-import type { ArchitectAsset, ArchitectContentBlock, ArchitectEvent, ArchitectMessage } from '../protocol';
+import type { ArchitectAsset, ArchitectMedium, ArchitectContentBlock, ArchitectEvent, ArchitectMessage } from '../protocol';
 import type { ArchitectModel } from './run';
 
 /**
@@ -77,7 +77,7 @@ function furnish(
 }
 
 /** A generic factory layout in image pixels: production hall, warehouse, docks, offices. */
-function factoryProposal(width: number, height: number, assets: readonly ArchitectAsset[] = []) {
+function factoryProposal(width: number, height: number, assets: readonly ArchitectAsset[] = [], media: readonly ArchitectMedium[] = []) {
   const m = Math.round(Math.min(width, height) * 0.08);
   const [x0, y0, x1, y1] = [m, m, width - m, height - m];
   const r = (v: number) => Math.round(v);
@@ -99,6 +99,13 @@ function factoryProposal(width: number, height: number, assets: readonly Archite
         { name: 'CNC line', kind: 'machine', x: r(x0 + (xs - x0) * 0.3), y: r(y0 + (ys - y0) * 0.4) },
         { name: 'Press', kind: 'machine', x: r(x0 + (xs - x0) * 0.7), y: r(y0 + (ys - y0) * 0.4) },
       ];
+  // A compressed air main along the hall's west side with a branch that drops between the lines.
+  const hall = (xm: number, ym: number, z?: number) => [r(x0 + xm / mpp), r(y0 + ym / mpp), ...(z === undefined ? [] : [z])];
+  const air = media.some((m) => m.id === 'CDA') ? 'CDA' : 'compressed air';
+  const pipelines = [
+    { name: 'Compressed air main', medium: air, diameter: 0.05, points: [hall(2, 2), hall(4, 2), hall(4, 18)] },
+    { name: 'Compressed air branch', medium: air, points: [hall(4, 13), hall(16, 13), hall(16, 13, 1)] },
+  ];
   return {
     name: 'Factory (mock draft)',
     metersPerPixel: Number(mpp.toFixed(4)),
@@ -134,11 +141,13 @@ function factoryProposal(width: number, height: number, assets: readonly Archite
           { name: 'Dock 2', kind: 'loading-dock', x: r(xs + (x1 - xs) * 0.7), y: y1 },
           { name: 'Main entrance', kind: 'exit', x: r((x0 + xo) / 2), y: y1 },
         ],
+        pipelines,
       },
     ],
     assumptions: [
       'This is a mock draft - it does not read your drawing.',
       'Halls are 9 m high, offices 3.5 m.',
+      'The compressed air pipes are an example, not read from the drawing.',
       ...(models.length ? ['Machines, racks and furniture are example placements, not read from the drawing.'] : []),
     ],
   };
@@ -153,9 +162,9 @@ export interface MockArchitectModelOptions {
 export function createMockArchitectModel(options: MockArchitectModelOptions = {}): ArchitectModel {
   const latency = options.latency ?? 1;
   return {
-    async *streamTurn({ messages, assets }, { signal, onUsage }) {
+    async *streamTurn({ messages, assets, media }, { signal, onUsage }) {
       const sleep = (ms: number) => (latency > 0 ? new Promise((r) => setTimeout(r, ms * latency)) : Promise.resolve());
-      for await (const event of mockTurn(messages, assets, sleep)) {
+      for await (const event of mockTurn(messages, assets, media, sleep)) {
         if (signal.aborted) return;
         if (event.type === 'done') onUsage?.({ model: 'mock', inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
         yield event;
@@ -171,7 +180,12 @@ async function* streamText(value: string, sleep: (ms: number) => Promise<unknown
   }
 }
 
-async function* mockTurn(messages: ArchitectMessage[], assets: readonly ArchitectAsset[], sleep: (ms: number) => Promise<unknown>): AsyncGenerator<ArchitectEvent> {
+async function* mockTurn(
+  messages: ArchitectMessage[],
+  assets: readonly ArchitectAsset[],
+  media: readonly ArchitectMedium[],
+  sleep: (ms: number) => Promise<unknown>,
+): AsyncGenerator<ArchitectEvent> {
   const turn = messages.filter((m) => m.role === 'assistant').length;
   const { width, height } = imageSize(messages);
   yield { type: 'thinking', text: 'Mock mode: no model is called. ' };
@@ -202,7 +216,7 @@ async function* mockTurn(messages: ArchitectMessage[], assets: readonly Architec
     Array.isArray(last?.content) && last.content.some((b) => b.type === 'tool_result' && b.tool_use_id !== 'toolu_mock_ask');
   if (lastIsToolResult) {
     const summary =
-      "Here's a first draft: a production hall and a warehouse under one roof, with offices, a canteen and a loading area along the south side, two docks and the main entrance. I assumed the building is 90 m wide." +
+      "Here's a first draft: a production hall and a warehouse under one roof, with offices, a canteen and a loading area along the south side, two docks, the main entrance and a compressed air line in the hall. I assumed the building is 90 m wide." +
       (assets.length ? ' I also placed example machines, conveyors, racks and furniture as 3D models.' : '') +
       ' Tell me what to change - for example room names, sizes or missing areas.';
     yield* streamText(summary, sleep);
@@ -217,6 +231,6 @@ async function* mockTurn(messages: ArchitectMessage[], assets: readonly Architec
   yield {
     type: 'done',
     stopReason: 'tool_use',
-    content: [toolUse(`toolu_mock_plan_${turn}`, 'propose_floor_plan', factoryProposal(width, height, assets))],
+    content: [toolUse(`toolu_mock_plan_${turn}`, 'propose_floor_plan', factoryProposal(width, height, assets, media))],
   };
 }

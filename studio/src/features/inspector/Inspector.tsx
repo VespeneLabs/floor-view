@@ -2,48 +2,28 @@ import {
   distance,
   findEntity,
   getLevel,
+  pipelineLength,
   polygonArea,
   type EntityRef,
   type Marker,
+  type Pipeline,
   type Room,
   type Wall,
 } from '@vespenelabs/floorview';
-import { useId, type ComponentProps, type ReactNode } from 'react';
+import { gasMedium } from '@vespenelabs/floorview/gas';
+import { Route } from 'lucide-react';
+import { useId, type ReactNode } from 'react';
 
+import { CommitInput } from '@/components/CommitInput';
+import { MediumSelect } from '@/components/MediumSelect';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { VespeneLabsMark } from '@/components/VespeneLabsMark';
 import { useStudio } from '@/features/studio/studio-context';
 import { ASSETS } from '@/lib/assets';
 
-/**
- * An input that commits on the native `change` event (blur, Enter, closing a color picker),
- * not on every keystroke, so each edit is a single undo step. It resets when `value` changes.
- */
-function CommitInput({
-  value,
-  onCommit,
-  ...props
-}: Omit<ComponentProps<typeof Input>, 'value' | 'defaultValue' | 'onChange'> & {
-  value: string | number;
-  onCommit: (value: string) => void;
-}) {
-  return (
-    <Input
-      key={String(value)}
-      defaultValue={value}
-      ref={(el) => {
-        if (!el) return;
-        const commit = () => onCommit(el.value);
-        el.addEventListener('change', commit);
-        return () => el.removeEventListener('change', commit);
-      }}
-      {...props}
-    />
-  );
-}
+import { PipePointsTable } from './PipePointsTable';
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId();
@@ -69,7 +49,7 @@ function ReadOnly({ label, value }: { label: string; value: string }) {
 const positive = (v: string) => Number(v) > 0;
 
 export function Inspector() {
-  const { editor, snapshot } = useStudio();
+  const { editor, snapshot, announce } = useStudio();
   if (!editor || !snapshot) return (
       <Panel title="Properties">
         <VespeneLabsMark />
@@ -79,7 +59,8 @@ export function Inspector() {
   const { plan, selection, levelId } = snapshot;
   const level = getLevel(plan, levelId);
   const entity = selection ? findEntity(plan, selection) : undefined;
-  const update = (ref: EntityRef, patch: Partial<Wall & Room & Marker>) => editor.updateEntity(ref, patch);
+  const update = (ref: EntityRef, patch: Partial<Wall & Room & Marker> | Partial<Pipeline>) => editor.updateEntity(ref, patch);
+  const markerName = (id: string | undefined) => (id ? (level?.markers.find((m) => m.id === id)?.name ?? id) : 'Not connected');
 
   let title = 'Level';
   let body: ReactNode = null;
@@ -150,6 +131,81 @@ export function Inspector() {
           <ReadOnly label="Area" value={`${polygonArea(room.points).toFixed(2)} m²`} />
         </>
       );
+    } else if (selection.kind === 'pipeline') {
+      const pipe = entity as Pipeline;
+      const heights = pipe.points.map((p) => p.z);
+      title = 'Pipeline';
+      body = (
+        <>
+          <Field label="Name">{(id) => <CommitInput id={id} value={pipe.name} onCommit={(v) => update(selection, { name: v })} />}</Field>
+          <Field label="Medium">
+            {(id) => (
+              <MediumSelect
+                id={id}
+                className="w-full"
+                value={pipe.medium}
+                // A preset also brings its identification color (the diameter stays), and renames
+                // a pipeline still called after its old medium ("Nitrogen 1" → "Hydrogen 1").
+                onChange={(medium, value) => {
+                  const auto = pipe.name.match(/^(.*) (\d+)$/);
+                  const rename = medium && auto && auto[1] === gasMedium(pipe.medium)?.name ? { name: `${medium.name} ${auto[2]}` } : {};
+                  update(selection, medium ? { medium: medium.id, color: medium.color, ...rename } : { medium: value });
+                }}
+              />
+            )}
+          </Field>
+          <Field label="Diameter (mm)">
+            {(id) => (
+              <CommitInput
+                id={id}
+                type="number"
+                step={5}
+                min={1}
+                value={Math.round(pipe.diameter * 10000) / 10}
+                onCommit={(v) => positive(v) && update(selection, { diameter: Number(v) / 1000 })}
+              />
+            )}
+          </Field>
+          <Field label="Color">
+            {(id) => (
+              <div className="flex items-center gap-2">
+                <CommitInput
+                  id={id}
+                  type="color"
+                  className="p-1"
+                  value={pipe.color ?? '#ca8a04'}
+                  onCommit={(v) => update(selection, { color: v })}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!pipe.color}
+                  aria-label="Use the default pipe color"
+                  onClick={() => update(selection, { color: undefined })}
+                >
+                  Default
+                </Button>
+              </div>
+            )}
+          </Field>
+          <ReadOnly label="Length (3D)" value={`${pipelineLength(pipe).toFixed(2)} m`} />
+          <ReadOnly label="Height" value={`${Math.min(...heights).toFixed(2)}–${Math.max(...heights).toFixed(2)} m`} />
+          <ReadOnly label="From" value={markerName(pipe.from)} />
+          <ReadOnly label="To" value={markerName(pipe.to)} />
+          <PipePointsTable pipe={pipe} onChange={(points) => update(selection, { points })} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => announce(editor.reroutePipeline(selection) ? `${pipe.name} routed again` : `${pipe.name} could not be routed`)}
+          >
+            <Route data-icon="inline-start" /> Route automatically
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Drag a point to reshape, or a grip in the middle of a segment to slide it sideways. Alt-click the pipe to add a point; click a point and press
+            Delete (or Alt-click it) to remove it.
+          </p>
+        </>
+      );
     } else {
       const marker = entity as Marker;
       const asset = marker.model ? ASSETS.find((a) => a.id === marker.model) : undefined;
@@ -191,6 +247,12 @@ export function Inspector() {
               </div>
             )}
           </Field>
+          {marker.pipelineId && (
+            <ReadOnly
+              label="On pipeline"
+              value={level?.pipelines.find((p) => p.id === marker.pipelineId)?.name ?? marker.pipelineId}
+            />
+          )}
           {marker.model && !marker.color && (
             <p className="-mt-2 text-xs text-muted-foreground">No accent: the model is drawn in white clay. An accent colors its accent parts (pipes, cylinders…), or the whole model if it has none.</p>
           )}

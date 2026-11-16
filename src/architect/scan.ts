@@ -76,7 +76,7 @@ export async function prepareScan(file: File): Promise<Scan> {
 
 /**
  * The proposed plan drawn over the scan (walls red, room outlines blue, markers green, 3D model
- * footprints orange with a thick front edge), at most `maxEdge` px, for the assistant to check its
+ * footprints orange with a thick front edge, pipelines purple with a ring at each riser), at most `maxEdge` px, for the assistant to check its
  * own geometry against the drawing. `assets` are the models markers may show.
  */
 export async function renderProposalOverlay(
@@ -142,6 +142,23 @@ export async function renderProposalOverlay(
       ctx.beginPath();
       ctx.arc(px(marker.position.x), px(marker.position.y), 5, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.strokeStyle = 'rgb(147 51 234 / 0.95)';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const pipe of level.pipelines) {
+      ctx.lineWidth = Math.max(3, px(pipe.diameter));
+      ctx.beginPath();
+      pipe.points.forEach((p, i) => (i ? ctx.lineTo(px(p.x), px(p.y)) : ctx.moveTo(px(p.x), px(p.y))));
+      ctx.stroke();
+      ctx.lineWidth = 2;
+      pipe.points.forEach((p, i) => {
+        const next = pipe.points[i + 1];
+        if (!next || next.x !== p.x || next.y !== p.y) return;
+        ctx.beginPath();
+        ctx.arc(px(p.x), px(p.y), 6, 0, Math.PI * 2);
+        ctx.stroke();
+      });
     }
   }
   const dataUrl = canvas.toDataURL('image/jpeg', 0.85);

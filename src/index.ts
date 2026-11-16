@@ -12,11 +12,12 @@ export type { Ghost, LevelSelection, MarkerMoveEvent, PickEvent, ViewerEvents, V
 export type { DataLayer, HeatmapLayer, HeatmapPoint, PointDatum, PointLayer, RoomLayer } from './viewer/layers';
 export { interpolateIDW } from './viewer/heatmap';
 export type { PickInfo, SceneColors } from './viewer/sceneBuilder';
+export type { FlowDirection } from './viewer/pipelines';
 export type { FocusOptions, FocusTarget } from './viewer/focus';
 export { DEFAULT_SCENE_COLORS } from './viewer/sceneBuilder';
 export { toThreeColor } from './viewer/color';
 
 export { ALL_EDITOR_TOOLS, FloorplanEditor } from './editor/Editor';
-export type { EditorEvents, EditorOptions, EditorTool, MarkerTemplate, OverlayPoint, OverlayPointMove } from './editor/Editor';
+export type { EditorEvents, EditorOptions, EditorTool, MarkerTemplate, OverlayPoint, OverlayPointMove, PipeSettings } from './editor/Editor';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.7.0';

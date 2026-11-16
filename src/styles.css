@@ -10,6 +10,7 @@
   --vl-room-stroke: #94a3b8;
   --vl-marker: #6366f1;
   --vl-marker-stroke: #ffffff;
+  --vl-pipe: #ca8a04;
   --vl-selection: #2563eb;
   --vl-draft: #0ea5e9;
   --vl-snap: #f59e0b;
@@ -108,6 +109,9 @@
 /* Walls are stroked in world units (their thickness), so they must scale with the view. */
 .vl-editor__svg .vl-editor__wall,
 .vl-editor__svg .vl-editor__wall-selection { vector-effect: none; stroke-linecap: square; }
+/* Pipes too (their diameter, with a minimum width computed per frame). */
+.vl-editor__svg .vl-editor__pipe,
+.vl-editor__svg .vl-editor__pipe-selection { vector-effect: none; }
 
 .vl-editor__room { fill-opacity: 0.65; stroke: var(--vl-room-stroke); stroke-width: 1; }
 .vl-editor__room:not([fill]) { fill: var(--vl-room); }
@@ -116,6 +120,25 @@
 .vl-editor__wall { stroke: var(--vl-wall); }
 .vl-editor__wall.is-draft { opacity: 0.4; }
 .vl-editor__wall-selection { stroke: var(--vl-selection); opacity: 0.5; }
+
+.vl-editor__pipe { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.vl-editor__pipe:not([stroke]) { stroke: var(--vl-pipe); }
+.vl-editor__pipe.is-draft { opacity: 0.6; pointer-events: none; }
+.vl-editor__pipe-selection { fill: none; stroke: var(--vl-selection); opacity: 0.5; stroke-linecap: round; stroke-linejoin: round; }
+/* A riser (vertical pipe): a ring around the spot where the pipe goes up or down. */
+.vl-editor__pipe-riser { fill: var(--vl-editor-bg); stroke-width: 1.5; }
+.vl-editor__pipe-riser:not([stroke]) { stroke: var(--vl-pipe); }
+.vl-editor__pipe-target { fill: none; stroke: var(--vl-snap); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; }
+.vl-editor__pipe-tee { stroke: var(--vl-editor-bg); stroke-width: 1.5; }
+.vl-editor__pipe-tee:not([fill]) { fill: var(--vl-pipe); }
+.vl-editor__pipe-z {
+  fill: var(--vl-label);
+  paint-order: stroke;
+  stroke: var(--vl-editor-bg);
+  stroke-width: 3px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
 
 .vl-editor__marker { stroke: var(--vl-marker-stroke); stroke-width: 2; }
 .vl-editor__marker:not([fill]) { fill: var(--vl-marker); }
@@ -156,6 +179,9 @@
   stroke-width: 2;
   cursor: move;
 }
+/* The pipeline vertex pressed last (Delete removes it) and the grips that slide a segment sideways. */
+.vl-editor__handle.is-active { fill: var(--vl-handle); }
+.vl-editor__handle--segment { stroke-width: 1.5; }
 
 /* A halo in the canvas color keeps labels readable on any room fill, in light and dark themes. */
 .vl-editor__label,

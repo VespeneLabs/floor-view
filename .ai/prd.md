@@ -46,7 +46,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 
 ### 3.1 Plan data model (Must)
 
-- FR-MOD-01: A plan (`FloorPlan`) has a format version, ID, name and one or more levels. A level has a name, elevation, wall height, walls, rooms and markers.
+- FR-MOD-01: A plan (`FloorPlan`) has a format version, ID, name and one or more levels. A level has a name, elevation, wall height, walls, rooms, markers and pipelines.
 - FR-MOD-02: A wall has a start and end point, thickness and an optional own height. A room is a polygon (at least 3 points) with a name, optional color and optional metadata. A marker is a point with a name, optional kind, color and metadata.
 - FR-MOD-03: All lengths are meters. Plan `y` grows down (as in SVG); in 3D, plan `y` maps to world Z and Y is up.
 - FR-MOD-04: `parsePlan` / `parsePlanJSON` validate untrusted input and report errors with the JSON path of the failing field (`PlanValidationError`).
@@ -166,7 +166,22 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-AST-07: Models are always decolorized (clay: white matte shaded by the original brightness), whatever kit they come from. A marker's color is an optional accent: it colors a model's accent parts (or the whole model if it has none), so equipment can be highlighted against white surroundings. The viewer can hide all models (`setShowModels`); Studio has an Assets toggle in the viewer, an accent color (with None) in the inspector, and decolorized thumbnails in the asset library.
 - FR-AST-06: Studio has an asset library panel (search, kit filter, thumbnails) to pick a model to place, rotation and scale fields in the inspector, rotate buttons in the toolbar and File → Load 3D assets demo.
 
-### 3.11 Non-functional requirements
+### 3.11 Pipelines (Must)
+
+Most clients are in the gas industry; pipes are drawn as routes, not assembled from pipe models.
+
+- FR-PIP-01: A level has pipelines. A pipeline is an open 3D polyline (at least 2 points, each with `x`, `y` and `z` above the level floor; a z change at one plan position is a riser) with a name, outer diameter, optional medium (free text), color, metadata and `from`/`to` links to the markers (equipment) at its ends. A marker can link to the pipeline it sits on (`pipelineId`, for valves, regulators and meters). `parsePlan` validates pipelines, keeps plans without pipelines loading (format version 1) and drops links that don't resolve on the same level; removing an entity clears links to it.
+- FR-PIP-02: Tees and joints are derived from geometry in 3D (`pipelineJunctions`); helpers give 3D length, the closest point on a pipeline and the rotation along a segment.
+- FR-PIP-03: A pipe tool (`P`, "Draw pipes" next to "Draw walls") draws pipelines click by click, orthogonal by default (`Shift`: 45°, `Alt`: free), snapping to the grid, wall faces (at a clearance), equipment centers and other pipelines (making a tee at their height). A current elevation (default 2.6 m, `[`/`]` or Page Up/Down, `setPipeSettings`) sets the z of new points; changing it at a point makes a riser. A selected pipeline shows vertex heights; vertices can be dragged, inserted and removed (`Alt`-click).
+- FR-PIP-04: Pipeline ends attached to equipment follow it when it moves; markers placed near a pipeline become fittings: aligned with the segment, centered on the pipe's height, sliding along it when dragged (`Alt`-drag detaches).
+- FR-PIP-05: The viewer draws pipelines as tubes of their real diameter with rounded joints, fittings at tees (no supports); pipelines are hoverable (tooltip: name, medium, diameter) and clickable through a minimum pick radius, can be tinted by the host (`setPipelineTints`) and can show an animated flow direction (`setPipelineFlow(s)`, still under reduced motion). Studio has a "Flow" toggle.
+- FR-PIP-06: The Gas kit provides medium presets (`GAS_MEDIA`: id, name, identification color, typical diameter; type `PipeMedium`); Studio has a pipe toolbar (medium, height, diameter; a medium sets color, diameter and name) and a pipeline inspector with a medium picker and an editable x/y/z point table (x/y locked on ends connected to equipment); fittings show their pipeline.
+- FR-PIP-07: The AI architect proposes pipelines when the drawing shows them or the user asks: routes in image pixels with optional medium, diameter and heights (risers). Proposals are validated in the browser; ends drawn onto a marker or another pipeline are connected (`from`/`to`, tees). The host passes pipe media (`media`, e.g. `GAS_MEDIA`), which reach the model as a cached prompt block and give matching pipelines their id, color and typical diameter. The Gas kit's old pipe section models are hidden from the assistant.
+- FR-PIP-08: Pipelines can be routed automatically (`routePipeline`): orthogonal, few bends, beside walls, through a wall only when going around is much longer. The pipe tool routes when one piece of equipment is clicked right after another; `connectMarkers` and `reroutePipeline` do it from code, and Studio's inspector has "Route automatically".
+- FR-PIP-09: A selected pipeline can be reshaped by sliding a segment sideways by its grip (ends attached to equipment stay, with a new corner) and by removing the vertex clicked last with `Delete`. An orthogonal end segment stays orthogonal when its equipment moves.
+- FR-PIP-10: Pipelines stay visible from far away: the viewer draws them at least a few pixels wide (`pipeMinWidth`) and at their real diameter up close. `focus({ kind: 'pipeline' })` centers on a pipeline and outlines its route. The air quality demo tints pipelines that run through a room with a poor reading.
+
+### 3.12 Non-functional requirements
 
 - NFR-01: TypeScript strict mode (`noUncheckedIndexedAccess`, `noUnused*`, `verbatimModuleSyntax`) for the library and the studio.
 - NFR-02: The library builds to ES and UMD bundles with CSS and type declarations.
@@ -439,6 +454,58 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
   - I can rotate a model while placing it or after selecting it (Q/E or the inspector) and change its scale; each change is one undo step.
   - The 3D view shows the model at the marker's position and rotation, and clicking it selects the marker.
   - File → Load 3D assets demo loads a furnished factory and clinic.
+
+### 5.7 Pipelines
+
+- ID: US-056
+- Title: Draw a gas pipeline
+- Description: As a gas engineer, I want to draw a pipe route next to the walls so that the plan shows how gas reaches each consumer.
+- Acceptance Criteria:
+  - With the pipe tool, each click adds a segment; segments are orthogonal unless I hold `Shift`; `Enter` or a double-click finishes, `Esc` cancels.
+  - I pick the medium and diameter before drawing; the pipe takes the medium's color.
+  - The finished pipeline is one undo step and is saved with the plan.
+
+- ID: US-057
+- Title: Route pipes in height
+- Description: As a gas engineer, I want to set the height of pipe points so that overhead runs and drops to equipment look right in 3D.
+- Acceptance Criteria:
+  - New points use the current elevation (default 2.6 m), which I change with `[`/`]` while drawing; changing it at a point adds a vertical riser.
+  - The inspector lists the points of a pipeline with editable x, y and z.
+
+- ID: US-058
+- Title: Connect pipes to equipment and to each other
+- Description: As a gas engineer, I want pipes to attach to equipment and to other pipes so that the network stays connected when I rearrange it.
+- Acceptance Criteria:
+  - Ending a pipe on a marker attaches it; moving or rotating the marker moves the pipe end; deleting the marker detaches it.
+  - Ending a pipe on another pipe makes a tee, shown in 2D and 3D.
+
+- ID: US-059
+- Title: Valves and regulators on a pipe
+- Description: As a gas engineer, I want to place valves, regulators and meters on a pipeline so that fittings sit at the pipe's height and direction.
+- Acceptance Criteria:
+  - Placing a fitting model near a pipeline snaps it onto the pipe, aligned with the segment, and links it to the pipeline.
+
+- ID: US-060
+- Title: Pipeline status in 3D
+- Description: As an operator, I want to see pipelines colored by status (e.g. a leak alarm) so that problems are easy to locate.
+- Acceptance Criteria:
+  - The host can tint a pipeline in the 3D view without rebuilding the scene; clicking a pipeline selects it.
+  - A thin pipeline is still visible when the whole building is in view, and the host can move the camera to a pipeline and highlight it.
+
+- ID: US-061
+- Title: Route a pipe automatically
+- Description: As a gas engineer, I want the app to route a pipe between two pieces of equipment so that I don't have to click every corner.
+- Acceptance Criteria:
+  - With the pipe tool, clicking one piece of equipment and then another draws an orthogonal pipeline between them, connected at both ends, as one undo step.
+  - The route has few bends, runs beside walls where it can and does not run inside a wall.
+  - A selected pipeline can be routed again after its equipment moved.
+
+- ID: US-062
+- Title: Pipes in an imported drawing
+- Description: As a facility manager, I want the assistant to draw the gas lines it finds on my scan so that the first plan already shows the pipework.
+- Acceptance Criteria:
+  - Pipes shown on the drawing arrive as pipelines with a medium and color, connected to the equipment they end on.
+  - Problems in a proposed pipeline go back to the assistant, which corrects them.
 
 ## 6. Success Metrics
 

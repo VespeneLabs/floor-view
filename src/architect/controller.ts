@@ -1,5 +1,6 @@
 import { Emitter } from '../core/emitter';
 import type { ModelAsset } from '../model/assets';
+import type { PipeMedium } from '../model/pipeline';
 import type { FloorPlan, Underlay } from '../model/types';
 import { convertProposal } from './conversion';
 import {
@@ -8,6 +9,7 @@ import {
   type ArchitectAsset,
   type ArchitectContentBlock,
   type ArchitectMessage,
+  type ArchitectRequest,
   type ArchitectStopReason,
   type ArchitectToolResultBlock,
   type ArchitectToolUseBlock,
@@ -94,6 +96,12 @@ export interface ArchitectControllerOptions {
    * block, so keep the list the same for a conversation. Default: none.
    */
   assets?: readonly ModelAsset[];
+  /**
+   * Pipe media the assistant may give pipelines (e.g. `GAS_MEDIA` from `/gas`): a proposed
+   * `medium` that matches one takes its id, color and typical diameter. Sent with every request
+   * like `assets`. Default: none (media are free text).
+   */
+  media?: readonly PipeMedium[];
 }
 
 /** What the wizard asked before starting; turned into the first message by `architectBrief`. */
@@ -149,6 +157,7 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
   private readonly renderPreview: PreviewRenderer;
   private assets: readonly ModelAsset[] = [];
   private wireAssets: ArchitectAsset[] = [];
+  private media: readonly PipeMedium[] = [];
 
   constructor(options: ArchitectControllerOptions) {
     super();
@@ -156,6 +165,17 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
     this.maxAutoSteps = options.maxAutoSteps ?? 6;
     this.renderPreview = options.renderPreview ?? renderProposalOverlay;
     this.setAssets(options.assets ?? []);
+    this.setMedia(options.media ?? []);
+  }
+
+  /**
+   * Replaces the pipe media the assistant may use (see `ArchitectControllerOptions.media`).
+   * Only before `start()`: a conversation keeps its list. Returns false when ignored.
+   */
+  setMedia(media: readonly PipeMedium[]): boolean {
+    if (this.messages.length) return false;
+    this.media = media.map((m) => ({ ...m }));
+    return true;
   }
 
   /**
@@ -269,7 +289,9 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
     const textId = this.nextId++;
     let text = '';
     try {
-      const request = this.wireAssets.length ? { messages: this.messages, assets: this.wireAssets } : { messages: this.messages };
+      const request: ArchitectRequest = { messages: this.messages };
+      if (this.wireAssets.length) request.assets = this.wireAssets;
+      if (this.media.length) request.media = this.media.map(({ id, name, diameter }) => ({ id, name, diameter }));
       for await (const event of this.transport(request, signal)) {
         switch (event.type) {
           case 'text': {
@@ -321,7 +343,7 @@ export class ArchitectController extends Emitter<ArchitectControllerEvents> {
 
     if (block.name === ARCHITECT_TOOLS.proposeFloorPlan && this.scan) {
       const scan = this.scan;
-      const result = convertProposal(block.input, scan, { assets: this.assets });
+      const result = convertProposal(block.input, scan, { assets: this.assets, media: this.media });
       if (!result.ok) {
         return fail(`The plan could not be shown. Fix these problems and propose again:\n${result.errors.map((e) => `- ${e}`).join('\n')}`);
       }

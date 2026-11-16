@@ -12,6 +12,8 @@ export interface ViewSettings {
   sensors: boolean;
   /** Show markers' 3D models (assets) in the viewer. */
   models: boolean;
+  /** Animate the flow in every pipeline (from its first point to its last). */
+  flow: boolean;
 }
 
 export interface StudioValue {

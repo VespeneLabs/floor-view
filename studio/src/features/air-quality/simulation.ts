@@ -4,7 +4,15 @@
  * lunch; the server room runs hot). Deterministic for a given plan and time, so scrubbing the
  * timeline is reproducible. Replace with real sensor data in a product.
  */
-import { pointInPolygon, polygonArea, polygonCentroid, type FloorPlan, type Point } from '@vespenelabs/floorview';
+import {
+  pipelineLength,
+  pointAlongPipeline,
+  pointInPolygon,
+  polygonArea,
+  polygonCentroid,
+  type FloorPlan,
+  type Point,
+} from '@vespenelabs/floorview';
 
 import type { MetricId } from './metrics';
 
@@ -55,6 +63,39 @@ export function sensorsFor(plan: FloorPlan): Sensor[] {
         };
       }),
   );
+}
+
+export interface PipelineAlert {
+  id: string;
+  name: string;
+  levelId: string;
+  /** The first room in alarm that the pipeline passes through. */
+  roomName: string;
+}
+
+/** Pipelines are checked against rooms every this many meters along their length. */
+const PIPE_SAMPLE_STEP = 0.5;
+
+/**
+ * Pipelines that run through a room in alarm (`roomIds`), e.g. to tint them in the viewer. The demo
+ * has no gas detectors, so a room with a poor reading stands in for a leak alarm.
+ */
+export function pipelineAlerts(plan: FloorPlan, roomIds: ReadonlySet<string>): PipelineAlert[] {
+  const alerts: PipelineAlert[] = [];
+  for (const level of plan.levels) {
+    const rooms = level.rooms.filter((room) => roomIds.has(room.id));
+    if (rooms.length === 0) continue;
+    for (const pipe of level.pipelines) {
+      const length = pipelineLength(pipe);
+      let hit: (typeof rooms)[number] | undefined;
+      for (let d = 0; d <= length && !hit; d += PIPE_SAMPLE_STEP) {
+        const p = pointAlongPipeline(pipe, d);
+        hit = p ? rooms.find((room) => pointInPolygon(p, room.points)) : undefined;
+      }
+      if (hit) alerts.push({ id: pipe.id, name: pipe.name || pipe.id, levelId: level.id, roomName: hit.name || hit.id });
+    }
+  }
+  return alerts;
 }
 
 /** Deterministic hash noise in [-1, 1]. */
