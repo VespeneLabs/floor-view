@@ -179,6 +179,9 @@
   stroke-width: 2;
   cursor: move;
 }
+/* The pipeline vertex pressed last (Delete removes it) and the grips that slide a segment sideways. */
+.vl-editor__handle.is-active { fill: var(--vl-handle); }
+.vl-editor__handle--segment { stroke-width: 1.5; }
 
 /* A halo in the canvas color keeps labels readable on any room fill, in light and dark themes. */
 .vl-editor__label,

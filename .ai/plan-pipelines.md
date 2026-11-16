@@ -1,6 +1,6 @@
 # Plan: Pipelines (draw pipes next to walls)
 
-Status: phases 1–4 done (model, editor, viewer, Studio UI) · 2026-11-10 · Target: 0.7.0
+Status: all phases done (model, editor, viewer, Studio UI, AI architect, auto-routing) · 2026-11-16 · Target: 0.7.0
 
 Our clients are mostly in the gas industry. Today a pipe is a chain of Gas kit markers
 (`pipe-run`, `pipe-run-corner`, `pipe-run-tee`, `pipe-riser`) placed by hand. This feature makes a
@@ -99,7 +99,11 @@ export interface Pipeline {
 2. ✅ **Editor pipe tool + selection editing + marker coupling** (`tests/editor-pipes.test.ts`), plus a minimal Studio UI for hand testing (Draw pipes button, height/Ø bar, pipeline inspector; `CommitInput` moved to `studio/src/components/`). Deviations from the plan above: settings are one `setPipeSettings`/`getPipeSettings` + `pipesettingschange` (not separate elevation calls); Alt-click inserts/removes vertices (no "segment drag", no Delete-on-vertex); markers snap only near their center (whole-footprint snapping hijacked clicks in furnished plans, found in Studio); fitting rotation is updated when a fitting slides or its pipeline is reshaped, not on every sync; a segment touching moved equipment can become diagonal (no auto re-orthogonalising).
 3. ✅ **3D rendering + picking + tints + flow** (`src/viewer/pipelines.ts`, `tests/scene-pipelines.test.ts`). Sphere joints instead of torus elbows; invisible ≥ 15 cm hit cylinders (a 50 mm pipe was 2 px wide in Studio and practically unclickable); `setPipelineFlows` batch API; Studio gets a viewer "Flow" toggle (all pipelines forward). Floor supports were built and then removed at the user's request (not needed by default); a `pipe-floor-support` Gas kit model (mounted, pipe at 2.6 m) replaces them for realistic plans. Not done: `focus({ kind: 'pipeline' })`, a minimum *visual* width for distant pipes.
 4. ✅ **Studio UI + gas media** (`src/gas/media.ts`, `PipeMedium` in `src/model/pipeline.ts`, `tests/gas-media.test.ts`; Studio `MediumSelect`, `PipePointsTable`), docs and PRD, version 0.7.0. Medium ids are short codes (`NG`, `N2`, `CDA`…) because they show in tooltips. A preset sets color, diameter and name in the toolbar; in the inspector it recolors (keeps the diameter) and renames a pipeline still named after its old medium. Diameters in Studio are in mm. Not done: tinting a pipeline on a leak alarm in the air quality demo.
-5. **Phase 2:** AI architect (`pipelines` in `propose_floor_plan`, `convertProposal` validation, prompt guidance, `/gas` media in the asset catalog), and later auto-routing (source → target, orthogonal along walls).
+5. ✅ **AI architect + auto-routing + leftovers** (2026-11-16).
+   - AI: `pipelines` in `propose_floor_plan` (points `[x, y]` or `[x, y, height]`), prompt guidance, `convertProposal` validation (`tests/architect-pipelines.test.ts`). No ids in the proposal: ends within 0.3 m of a marker or pipeline are connected from the geometry. Media reach the agent as request `media` in their own system block before the asset catalog (not inside it). The old pipe section models are `ai: false` (set in `src/gas/index.ts`, since the generated catalog tuple has no `ai` field). This changed the cached prompt prefix once.
+   - Routing: `routePipeline` (`src/model/routing.ts`, A* on the grid; only walls are obstacles), `editor.connectMarkers`, `editor.reroutePipeline`, the pipe tool routes marker → marker clicks, Studio "Route automatically".
+   - Leftovers from phases 2–4: segment grips (instead of dragging the segment itself, which would clash with moving the whole pipeline), `Delete` on the vertex clicked last, end segments stay orthogonal when equipment moves (`movePipelineEnd`), `focus({ kind: 'pipeline' })`, a minimum on-screen width (`pipeMinWidth`), and the air quality demo tints pipelines in rooms with poor readings.
+   - Not done: routing around equipment and other pipelines, sleeves at wall penetrations.
 
 ## Risks / open points
 

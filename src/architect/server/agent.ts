@@ -21,7 +21,7 @@ export const ARCHITECT_SYSTEM = `You are the floor plan assistant inside a floor
 The person you are helping is usually not a designer. They upload a scanned drawing, an old blueprint or a hand sketch of their facility and want a clean digital floor plan they can refine afterwards in the editor. Your job is to turn the drawing into a good first plan, asking only what you genuinely need to know.
 
 How the app models a plan:
-- A plan has levels (floors). Each level has walls (straight segments with a thickness in meters), rooms (closed polygons with a name and a use) and markers (points of interest such as machines, exits, loading docks or fire equipment).
+- A plan has levels (floors). Each level has walls (straight segments with a thickness in meters), rooms (closed polygons with a name and a use), markers (points of interest such as machines, exits, loading docks or fire equipment) and pipelines (pipes, ducts and gas lines: a route of points at a height above the floor, with a diameter and the medium it carries).
 - Door and gate openings are gaps between wall segments.
 - You draw in the pixel coordinates of the uploaded image: origin at the top-left corner, x to the right, y down. The first message states the image size. The app converts pixels to meters using the metersPerPixel you choose, so one consistent scale covers the whole drawing.
 
@@ -30,7 +30,8 @@ Working method:
 2. Establish the scale. Prefer a dimension string or a scale bar. Otherwise infer it from typical sizes (personnel door 0.9-1 m, dock door about 3 m wide, column grid 6-12 m) and say that you did. If neither the drawing nor the user gives you a way to judge the size, ask for one known measurement.
 3. If something essential is unclear, ask with ask_user: at most one round of questions before the first draft, as few questions as possible, multiple-choice where you can, in plain words. Do not ask what you can reasonably assume - state the assumption instead.
 4. Draft with propose_floor_plan. Keep walls straight, and axis-aligned where the drawing is. Give shared corners identical coordinates. Run room outlines along wall centrelines so neighbouring rooms share edges and never overlap. Every enclosed area that matters becomes a room with a fitting use. Leave gaps for doors and gates. Unless the drawing shows otherwise, exterior walls are about 0.3 m thick and interior partitions 0.1-0.2 m; production and warehouse halls are usually 6-12 m high and offices about 3 m - set the level height for the common case and per-wall heights where a part clearly differs. Add machines, exits, loading docks and similar as markers when they are visible or mentioned; when an asset catalog of 3D models follows this prompt, show recognized objects as models from it. Approximate small details rather than inventing precision the drawing doesn't have.
-5. After each draft, tell the user in a few sentences what you built, the scale you used and your main assumptions, and invite corrections. When they ask for changes, send a complete revised plan with propose_floor_plan.
+5. Draw pipes, ducts and gas lines as pipelines when the drawing shows them or the user asks for them - never as markers or as chains of pipe models. One pipeline per run, with a point at every bend and straight, axis-aligned segments where the drawing has them. A branch is its own pipeline that starts exactly on the line it leaves. Put a pipeline's end on the marker of the equipment it connects (tank, cabinet, machine, valve panel); the app links them. Pipes usually run overhead at about 2.6 m; give other heights only when the drawing or the user says so, and repeat a point with a second height where a pipe drops or rises. Don't invent pipework the drawing doesn't show.
+6. After each draft, tell the user in a few sentences what you built, the scale you used and your main assumptions, and invite corrections. When they ask for changes, send a complete revised plan with propose_floor_plan.
 
 If a tool result reports problems with a proposal, fix them and propose again. If the image is not a floor plan or is too unclear to read, say so and ask for a better scan or photo.
 
@@ -70,7 +71,7 @@ export const ARCHITECT_TOOL_DEFINITIONS: ArchitectToolDefinition[] = [
   {
     name: 'propose_floor_plan',
     description:
-      'Show the user a complete draft floor plan built from the drawing (always the whole plan, also for revisions). Coordinates are pixels of the uploaded image (origin top-left, x right, y down); metersPerPixel converts them to meters. The app checks the geometry: the tool result either lists problems to fix, or confirms the plan is shown with a summary and an image of your plan drawn over the scan (walls red, room outlines blue, markers green, 3D model footprints orange with a thick front edge). Use that image to check alignment with the drawing, and send a corrected plan if something is clearly off before presenting the draft.',
+      'Show the user a complete draft floor plan built from the drawing (always the whole plan, also for revisions). Coordinates are pixels of the uploaded image (origin top-left, x right, y down); metersPerPixel converts them to meters. The app checks the geometry: the tool result either lists problems to fix, or confirms the plan is shown with a summary and an image of your plan drawn over the scan (walls red, room outlines blue, markers green, 3D model footprints orange with a thick front edge, pipelines purple). Use that image to check alignment with the drawing, and send a corrected plan if something is clearly off before presenting the draft.',
     // Plans are large: stream the input as it is generated. The browser validates it (conversion.ts).
     streamInput: true,
     input_schema: {
@@ -133,6 +134,30 @@ export const ARCHITECT_TOOL_DEFINITIONS: ArchitectToolDefinition[] = [
                     scale: { type: 'number', description: "Size factor on top of the model's own size, 0.5 to 2. Omit for 1." },
                   },
                   required: ['name', 'kind', 'x', 'y'],
+                },
+              },
+              pipelines: {
+                type: 'array',
+                description: 'Pipes, ducts and gas lines as routes. Only what the drawing shows or the user asks for.',
+                items: {
+                  type: 'object',
+                  properties: {
+                    name: { type: 'string', description: 'e.g. "Nitrogen main" or "Compressed air to press 2".' },
+                    medium: {
+                      type: 'string',
+                      description: 'What the pipe carries: an id from the pipe media list when one follows the prompt, otherwise a short plain name such as "natural gas".',
+                    },
+                    diameter: { type: 'number', description: "Outer diameter in meters, e.g. 0.05. Omit for the medium's typical size." },
+                    height: { type: 'number', description: 'Height of the run above the floor in meters. Omit for 2.6 (overhead).' },
+                    points: {
+                      type: 'array',
+                      minItems: 2,
+                      description:
+                        'Route in order, one point per bend: [x, y] in pixels at "height", or [x, y, heightMeters] for another height. Repeat a point with a different height for a vertical riser.',
+                      items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 3 },
+                    },
+                  },
+                  required: ['name', 'points'],
                 },
               },
             },

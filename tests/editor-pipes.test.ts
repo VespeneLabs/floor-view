@@ -197,6 +197,43 @@ describe('pipe tool: connections', () => {
     expect(pipes()[0]).toMatchObject({ from: 'tank' });
   });
 
+  it('routes a pipeline automatically between two markers clicked one after the other', () => {
+    const walls = [{ id: 'w', start: { x: 6, y: -40 }, end: { x: 6, y: 40 }, thickness: 0.2 }];
+    const { editor, click, pipes } = setup(planWith({ markers: [marker('tank', 2, 2), marker('boiler', 10, 5)], walls }));
+    editor.setTool('pipe');
+    click(2, 2);
+    click(10, 5);
+    const routed = pipes()[0]!;
+    expect(routed).toMatchObject({ from: 'tank', to: 'boiler' });
+    expect(routed.points[0]).toEqual(pt(2, 2));
+    expect(routed.points.at(-1)).toEqual(pt(10, 5));
+    expect(routed.points).toHaveLength(3);
+    expect(routed.points.slice(1).every((p, i) => p.x === routed.points[i]!.x || p.y === routed.points[i]!.y)).toBe(true);
+    editor.undo();
+    expect(pipes()).toHaveLength(0);
+
+    const made = editor.connectMarkers('boiler', 'tank')!;
+    expect(made).toMatchObject({ from: 'boiler', to: 'tank' });
+    expect(editor.getSelection()).toMatchObject({ kind: 'pipeline', id: made.id });
+    expect(editor.connectMarkers('tank', 'tank')).toBeNull();
+    expect(editor.connectMarkers('tank', 'nope')).toBeNull();
+  });
+
+  it('routes an existing pipeline again, keeping its end risers and links', () => {
+    const crooked = pipe('p', [pt(2, 2, 0.5), pt(2, 2, 3), pt(5, 9, 3), pt(10, 5, 3)], { from: 'tank', to: 'boiler' });
+    const { editor, pipes } = setup(planWith({ markers: [marker('tank', 2, 2), marker('boiler', 10, 5)], pipelines: [crooked] }));
+    const ref = { kind: 'pipeline' as const, id: 'p', levelId: editor.getActiveLevel().id };
+    expect(editor.reroutePipeline(ref)).toBe(true);
+    const points = pipes()[0]!.points;
+    expect(points.slice(0, 2)).toEqual([pt(2, 2, 0.5), pt(2, 2, 3)]);
+    expect(points.at(-1)).toEqual(pt(10, 5, 3));
+    expect(points).toHaveLength(4);
+    expect(pipes()[0]).toMatchObject({ from: 'tank', to: 'boiler' });
+    editor.undo();
+    expect(pipes()[0]!.points).toEqual(crooked.points);
+    expect(editor.reroutePipeline({ ...ref, id: 'nope' })).toBe(false);
+  });
+
   it('moves a riser at an attached end with its marker', () => {
     const p = pipe('p', [pt(2, 2, 0.5), pt(2, 2), pt(6, 2)], { from: 'tank' });
     const { editor, pipes } = setup(planWith({ markers: [marker('tank', 2, 2)], pipelines: [p] }));
@@ -307,6 +344,56 @@ describe('pipe editing with the select tool', () => {
     editor.undo();
     editor.undo();
     expect(pipes()[0]!.points).toHaveLength(3);
+  });
+
+  it('drags a segment sideways by its grip, stretching its neighbours, as one undo step', () => {
+    const main = pipe('main', [pt(0, 0), pt(10, 0), pt(10, 6, 2.6), pt(10, 6, 0.5)]);
+    const { editor, click, drag, pipes } = setup(planWith({ pipelines: [main], markers: [marker('valve', 4, 0, { pipelineId: 'main' })] }));
+    click(2, 0); // select: grips appear in the middle of each segment
+    expect(editor.element.querySelectorAll('.vl-editor__handle--segment')).toHaveLength(2);
+    drag([5, 0], [6, 2.1]); // only the sideways part counts, snapped to the grid
+    expect(pipes()[0]!.points).toEqual([pt(0, 2), pt(10, 2), pt(10, 6), pt(10, 6, 0.5)]);
+    expect(editor.getActiveLevel().markers[0]!.position).toEqual({ x: 4, y: 2 });
+    drag([10, 4], [8, 4]); // the riser at the end moves with its segment
+    expect(pipes()[0]!.points).toEqual([pt(0, 2), pt(8, 2), pt(8, 6), pt(8, 6, 0.5)]);
+    editor.undo();
+    editor.undo();
+    expect(pipes()[0]!.points).toEqual(main.points);
+  });
+
+  it('keeps ends attached to equipment when their segment is dragged, adding a corner', () => {
+    const main = pipe('main', [pt(0, 0), pt(10, 0)], { from: 'tank', to: 'pump' });
+    const { click, drag, pipes } = setup(planWith({ pipelines: [main], markers: [marker('tank', 0, 0), marker('pump', 10, 0)] }));
+    click(3, 0);
+    drag([5, 0], [5, 0]); // no movement: nothing changes
+    expect(pipes()[0]!.points).toEqual(main.points);
+    drag([5, 0], [5, 1.5]);
+    expect(pipes()[0]).toMatchObject({ from: 'tank', to: 'pump', points: [pt(0, 0), pt(0, 1.5), pt(10, 1.5), pt(10, 0)] });
+  });
+
+  it('removes the pressed vertex with Delete, then the pipeline', () => {
+    const main = pipe('main', [pt(0, 0), pt(10, 0), pt(10, 6)]);
+    const { editor, click, key, pipes } = setup(planWith({ pipelines: [main] }));
+    click(3, 0);
+    click(10, 0); // press the corner's handle
+    expect(editor.element.querySelectorAll('.vl-editor__handle.is-active')).toHaveLength(1);
+    key('Delete');
+    expect(pipes()[0]!.points).toEqual([pt(0, 0), pt(10, 6)]);
+    expect(editor.element.querySelectorAll('.vl-editor__handle.is-active')).toHaveLength(0);
+    key('Delete');
+    expect(pipes()).toHaveLength(0);
+    editor.undo();
+    editor.undo();
+    expect(pipes()[0]!.points).toHaveLength(3);
+  });
+
+  it('keeps an orthogonal end segment orthogonal when its equipment moves', () => {
+    const bent = pipe('bent', [pt(0, 0, 0.5), pt(0, 0), pt(10, 0), pt(10, 6)], { from: 'tank' });
+    const straight = pipe('straight', [pt(0, 0), pt(-6, 0)], { from: 'tank' });
+    const { drag, pipes } = setup(planWith({ pipelines: [bent, straight], markers: [marker('tank', 0, 0)] }));
+    drag([0, 0], [1, 2]);
+    expect(pipes()[0]!.points).toEqual([pt(1, 2, 0.5), pt(1, 2), pt(10, 2), pt(10, 6)]);
+    expect(pipes()[1]!.points).toEqual([pt(1, 2), pt(-6, 0)]); // nothing to slide: it turns
   });
 
   it('renders pipes, risers and tees with data colors as attributes', () => {

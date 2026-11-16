@@ -163,24 +163,64 @@ export interface SyncPipelineLinksOptions {
    * the elevation alone (e.g. wall-mounted models). Default: 0 (the marker is at the pipe's z).
    */
   fittingOffset?: (marker: Marker) => number | null;
+  /**
+   * Keep the segment at a moved end horizontal or vertical when it was before: the next corner
+   * slides along with the end (see `movePipelineEnd`). Default true.
+   */
+  orthogonal?: boolean;
+}
+
+/**
+ * Move one end of a pipeline (with any riser at that end) to plan position `to`, in place. With
+ * `orthogonal` (default), an end segment that is horizontal or vertical stays that way: the corner
+ * after it slides along, as long as the segment after that corner is perpendicular (so it only
+ * gets longer or shorter). Otherwise (a straight two-point pipe, a diagonal segment, a corner that
+ * would land on the next one) only the end moves.
+ */
+export function movePipelineEnd(pipeline: Pipeline, end: PipelineEnd, to: Point, orthogonal = true): void {
+  const pts = pipeline.points;
+  const run = pipelineEndRun(pipeline, end);
+  const anchor = pts[run[0]!];
+  if (!anchor || (anchor.x === to.x && anchor.y === to.y)) return;
+  const step = end === 'start' ? 1 : -1;
+  const cornerIndex = run[run.length - 1]! + step;
+  const corner = pts[cornerIndex];
+  if (orthogonal && corner) {
+    // The corner with its own riser, and the first point after it.
+    const cornerRun = [cornerIndex];
+    let i = cornerIndex + step;
+    for (; pts[i] && pts[i]!.x === corner.x && pts[i]!.y === corner.y; i += step) cornerRun.push(i);
+    const beyond = pts[i];
+    const horizontal = same(corner.y, anchor.y) && !same(corner.x, anchor.x);
+    const vertical = same(corner.x, anchor.x) && !same(corner.y, anchor.y);
+    if (beyond && horizontal && same(beyond.x, corner.x) && !same(beyond.y, to.y)) {
+      for (const k of cornerRun) pts[k]!.y = to.y;
+    } else if (beyond && vertical && same(beyond.y, corner.y) && !same(beyond.x, to.x)) {
+      for (const k of cornerRun) pts[k]!.x = to.x;
+    }
+  }
+  for (const k of run) {
+    pts[k]!.x = to.x;
+    pts[k]!.y = to.y;
+  }
+}
+
+function same(a: number, b: number): boolean {
+  return Math.abs(a - b) < 1e-9;
 }
 
 /**
  * Re-apply a level's links after an edit, in place: pipeline ends attached to markers (`from`/`to`)
- * move to their marker's position (with any riser at that end), and fittings (`pipelineId`) move to
- * the closest point on their pipeline, taking its height. Rotations are left alone (see
- * `alignRotation`).
+ * move to their marker's position (with any riser at that end, keeping orthogonal end segments
+ * orthogonal, see `movePipelineEnd`), and fittings (`pipelineId`) move to the closest point on
+ * their pipeline, taking its height. Rotations are left alone (see `alignRotation`).
  */
 export function syncPipelineLinks(level: Level, options: SyncPipelineLinksOptions = {}): void {
   const markers = new Map(level.markers.map((m) => [m.id, m]));
   for (const pipe of level.pipelines) {
     for (const [end, id] of [['start', pipe.from], ['end', pipe.to]] as const) {
       const marker = id ? markers.get(id) : undefined;
-      if (!marker) continue;
-      for (const i of pipelineEndRun(pipe, end)) {
-        pipe.points[i]!.x = marker.position.x;
-        pipe.points[i]!.y = marker.position.y;
-      }
+      if (marker) movePipelineEnd(pipe, end, marker.position, options.orthogonal ?? true);
     }
   }
   const pipes = new Map(level.pipelines.map((p) => [p.id, p]));

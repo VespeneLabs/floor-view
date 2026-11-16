@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { createLevel } from '../src/model/plan';
 import { pointAlongPipeline } from '../src/model/pipeline';
 import type { PipePoint, Pipeline } from '../src/model/types';
-import { PipelineFlow, type PipelineUserData } from '../src/viewer/pipelines';
+import { createPlan } from '../src/model/plan';
+import { resolveFocus } from '../src/viewer/focus';
+import { PipelineFlow, updatePipeWidths, worldPerPixel, type PipelineUserData } from '../src/viewer/pipelines';
 import { buildLevel, DEFAULT_SCENE_COLORS, disposeObject } from '../src/viewer/sceneBuilder';
 
 const pt = (x: number, y: number, z = 2.6): PipePoint => ({ x, y, z });
@@ -100,5 +102,68 @@ describe('pipeline flow', () => {
     expect(forward.group.children[0]!.position.y).toBeCloseTo(0.8);
     reverse.update(1000);
     expect(reverse.group.children[0]!.position.x).toBeCloseTo(3.2);
+  });
+});
+
+describe('pipe width on screen', () => {
+  const level = createLevel({ pipelines: [pipe('p', [pt(0, 0, 1), pt(4, 0, 1), pt(4, 3, 1)], { diameter: 0.05 })] });
+  const camera = (distance: number) => {
+    const c = new THREE.PerspectiveCamera(45, 1, 0.1, 5000);
+    c.position.set(2, 1 + distance, 0);
+    c.lookAt(2, 1, 0);
+    c.updateMatrixWorld();
+    return c;
+  };
+  const parts = (group: THREE.Object3D) => meshes(group).filter(isPipePart);
+
+  it('measures a pixel in world units for both cameras', () => {
+    expect(worldPerPixel(camera(10), 10, 1000)).toBeCloseTo((20 * Math.tan(Math.PI / 8)) / 1000);
+    const ortho = new THREE.OrthographicCamera(-10, 10, 5, -5, 0.1, 100);
+    ortho.zoom = 2;
+    expect(worldPerPixel(ortho, 123, 500)).toBeCloseTo(0.01);
+  });
+
+  it('thickens distant pipes to a minimum width and restores the real size up close', () => {
+    const group = buildLevel(level).pipelines.get('p')!;
+    const [tube, joint] = [parts(group)[0]!, parts(group).find((m) => m.geometry.type === 'SphereGeometry')!];
+    updatePipeWidths(group, camera(2), 800, 2.5);
+    expect(tube.scale.toArray()).toEqual([0.025, 4, 0.025]);
+
+    const far = camera(200);
+    updatePipeWidths(group, far, 800, 2.5);
+    const expected = (2.5 * worldPerPixel(far, 200, 800)) / 2;
+    expect(expected).toBeGreaterThan(0.025);
+    expect(tube.scale.x).toBeCloseTo(expected);
+    expect(tube.scale.y).toBe(4); // the length is untouched
+    expect(joint.scale.x).toBeGreaterThan(0.025);
+    expect(meshes(group).find((m) => m.userData.hitProxy)!.scale.x).toBe(0.15);
+
+    updatePipeWidths(group, far, 800, 0);
+    expect(tube.scale.x).toBe(0.025);
+    expect(joint.scale.x).toBe(0.025);
+  });
+
+  it('keeps flow beads thicker than the pipe', () => {
+    const flow = new PipelineFlow(level.pipelines[0]!, 'forward');
+    const far = camera(200);
+    updatePipeWidths(flow.group, far, 800, 2.5);
+    expect(flow.group.children[0]!.scale.x).toBeGreaterThan((2.5 * worldPerPixel(far, 200, 800)) / 2);
+  });
+});
+
+describe('pipeline focus', () => {
+  it('centers on the middle of the pipe at its height and outlines its route', () => {
+    const plan = createPlan();
+    plan.levels[0]!.pipelines.push(pipe('p', [pt(0, 0, 0.5), pt(0, 0, 2.5), pt(6, 0, 2.5), pt(6, 2, 2.5)]));
+    const focus = resolveFocus(plan, { kind: 'pipeline', id: 'p' }, () => null)!;
+    expect(focus).toMatchObject({ levelId: plan.levels[0]!.id, center: { x: 3, y: 0 }, height: 2.5 });
+    expect(focus.shape).toEqual({ type: 'outline', points: [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 2 }], closed: false, width: 0.1 + 0.2 });
+    expect(resolveFocus(plan, { kind: 'pipeline', id: 'nope' }, () => null)).toBeNull();
+  });
+
+  it('rings a pipeline that is only a riser', () => {
+    const plan = createPlan();
+    plan.levels[0]!.pipelines.push(pipe('r', [pt(1, 1, 0), pt(1, 1, 3)]));
+    expect(resolveFocus(plan, { kind: 'pipeline', id: 'r' }, () => null)).toMatchObject({ center: { x: 1, y: 1 }, height: 1.5, shape: { type: 'ring' } });
   });
 });

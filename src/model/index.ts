@@ -32,6 +32,7 @@ export {
 export {
   alignRotation,
   isRiser,
+  movePipelineEnd,
   nearestPointOnPipeline,
   pipelineEndRun,
   pipeDistance,
@@ -46,4 +47,5 @@ export {
   type PipelineProjection,
   type SyncPipelineLinksOptions,
 } from './pipeline';
+export { routePipeline, type RoutePipelineOptions } from './routing';
 export { parsePlan, parsePlanJSON, PlanValidationError } from './validate';

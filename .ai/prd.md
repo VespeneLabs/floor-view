@@ -176,7 +176,10 @@ Most clients are in the gas industry; pipes are drawn as routes, not assembled f
 - FR-PIP-04: Pipeline ends attached to equipment follow it when it moves; markers placed near a pipeline become fittings: aligned with the segment, centered on the pipe's height, sliding along it when dragged (`Alt`-drag detaches).
 - FR-PIP-05: The viewer draws pipelines as tubes of their real diameter with rounded joints, fittings at tees (no supports); pipelines are hoverable (tooltip: name, medium, diameter) and clickable through a minimum pick radius, can be tinted by the host (`setPipelineTints`) and can show an animated flow direction (`setPipelineFlow(s)`, still under reduced motion). Studio has a "Flow" toggle.
 - FR-PIP-06: The Gas kit provides medium presets (`GAS_MEDIA`: id, name, identification color, typical diameter; type `PipeMedium`); Studio has a pipe toolbar (medium, height, diameter; a medium sets color, diameter and name) and a pipeline inspector with a medium picker and an editable x/y/z point table (x/y locked on ends connected to equipment); fittings show their pipeline.
-- FR-PIP-07 (later): The AI architect can propose pipelines.
+- FR-PIP-07: The AI architect proposes pipelines when the drawing shows them or the user asks: routes in image pixels with optional medium, diameter and heights (risers). Proposals are validated in the browser; ends drawn onto a marker or another pipeline are connected (`from`/`to`, tees). The host passes pipe media (`media`, e.g. `GAS_MEDIA`), which reach the model as a cached prompt block and give matching pipelines their id, color and typical diameter. The Gas kit's old pipe section models are hidden from the assistant.
+- FR-PIP-08: Pipelines can be routed automatically (`routePipeline`): orthogonal, few bends, beside walls, through a wall only when going around is much longer. The pipe tool routes when one piece of equipment is clicked right after another; `connectMarkers` and `reroutePipeline` do it from code, and Studio's inspector has "Route automatically".
+- FR-PIP-09: A selected pipeline can be reshaped by sliding a segment sideways by its grip (ends attached to equipment stay, with a new corner) and by removing the vertex clicked last with `Delete`. An orthogonal end segment stays orthogonal when its equipment moves.
+- FR-PIP-10: Pipelines stay visible from far away: the viewer draws them at least a few pixels wide (`pipeMinWidth`) and at their real diameter up close. `focus({ kind: 'pipeline' })` centers on a pipeline and outlines its route. The air quality demo tints pipelines that run through a room with a poor reading.
 
 ### 3.12 Non-functional requirements
 
@@ -487,6 +490,22 @@ Most clients are in the gas industry; pipes are drawn as routes, not assembled f
 - Description: As an operator, I want to see pipelines colored by status (e.g. a leak alarm) so that problems are easy to locate.
 - Acceptance Criteria:
   - The host can tint a pipeline in the 3D view without rebuilding the scene; clicking a pipeline selects it.
+  - A thin pipeline is still visible when the whole building is in view, and the host can move the camera to a pipeline and highlight it.
+
+- ID: US-061
+- Title: Route a pipe automatically
+- Description: As a gas engineer, I want the app to route a pipe between two pieces of equipment so that I don't have to click every corner.
+- Acceptance Criteria:
+  - With the pipe tool, clicking one piece of equipment and then another draws an orthogonal pipeline between them, connected at both ends, as one undo step.
+  - The route has few bends, runs beside walls where it can and does not run inside a wall.
+  - A selected pipeline can be routed again after its equipment moved.
+
+- ID: US-062
+- Title: Pipes in an imported drawing
+- Description: As a facility manager, I want the assistant to draw the gas lines it finds on my scan so that the first plan already shows the pipework.
+- Acceptance Criteria:
+  - Pipes shown on the drawing arrive as pipelines with a medium and color, connected to the equipment they end on.
+  - Problems in a proposed pipeline go back to the assistant, which corrects them.
 
 ## 6. Success Metrics
 

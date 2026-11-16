@@ -11,6 +11,7 @@ import {
   type Wall,
 } from '@vespenelabs/floorview';
 import { gasMedium } from '@vespenelabs/floorview/gas';
+import { Route } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 
 import { CommitInput } from '@/components/CommitInput';
@@ -48,7 +49,7 @@ function ReadOnly({ label, value }: { label: string; value: string }) {
 const positive = (v: string) => Number(v) > 0;
 
 export function Inspector() {
-  const { editor, snapshot } = useStudio();
+  const { editor, snapshot, announce } = useStudio();
   if (!editor || !snapshot) return (
       <Panel title="Properties">
         <VespeneLabsMark />
@@ -192,7 +193,17 @@ export function Inspector() {
           <ReadOnly label="From" value={markerName(pipe.from)} />
           <ReadOnly label="To" value={markerName(pipe.to)} />
           <PipePointsTable pipe={pipe} onChange={(points) => update(selection, { points })} />
-          <p className="text-xs text-muted-foreground">Drag a point to reshape. Alt-click the pipe to add a point, Alt-click a point to remove it.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => announce(editor.reroutePipeline(selection) ? `${pipe.name} routed again` : `${pipe.name} could not be routed`)}
+          >
+            <Route data-icon="inline-start" /> Route automatically
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Drag a point to reshape, or a grip in the middle of a segment to slide it sideways. Alt-click the pipe to add a point; click a point and press
+            Delete (or Alt-click it) to remove it.
+          </p>
         </>
       );
     } else {

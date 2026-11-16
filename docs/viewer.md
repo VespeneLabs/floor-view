@@ -21,7 +21,7 @@ The viewer appends a `.vl-viewer` element that fills `container`, and resizes wi
 
 ## Pipelines
 
-Pipelines (see [data model](data-model.md)) are drawn as tubes of their real diameter at their points' heights, in `pipeline.color` (or `colors.pipe`): a cylinder per segment, rounded joints at bends, and a fitting body where one pipeline meets another (tee or joint). There are no supports or hangers; place the Gas kit's `pipe-floor-support` model for those (see [assets](assets.md#pipe-media)). Real pipes are only a few pixels wide, so each segment also has an invisible pick cylinder at least 15 cm in radius: hovering lights up the whole pipeline, the tooltip shows its name, medium and diameter, and a click reports `{ kind: 'pipeline', id, levelId }`. Fittings (markers with `pipelineId`) are ordinary markers raised to the pipe by their `elevation`.
+Pipelines (see [data model](data-model.md)) are drawn as tubes of their real diameter at their points' heights, in `pipeline.color` (or `colors.pipe`): a cylinder per segment, rounded joints at bends, and a fitting body where one pipeline meets another (tee or joint). There are no supports or hangers; place the Gas kit's `pipe-floor-support` model for those (see [assets](assets.md#pipe-media)). From far away a pipe of a few centimeters would be thinner than a pixel, so pipes (with their joints, tees and flow beads) are drawn at least `pipeMinWidth` pixels wide (option, default 2.5; `setPipeMinWidth(px)`, 0 for the real diameter always) and at their real size up close. For the same reason each segment also has an invisible pick cylinder at least 15 cm in radius: hovering lights up the whole pipeline, the tooltip shows its name, medium and diameter, and a click reports `{ kind: 'pipeline', id, levelId }`. Fittings (markers with `pipelineId`) are ordinary markers raised to the pipe by their `elevation`.
 
 ## Methods
 
@@ -39,12 +39,13 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `setMarkerTints({ [markerId]: color \| null }, { replace? })` / `setMarkerTint(id, color \| null)` / `getMarkerTints()` | Host-managed state colors, e.g. red for an alarm or amber for low stock. A tint colors a marker's whole 3D model (all parts, clay shading kept) or its glyph, and wins over `marker.color`. Not plan data: updates in place without a rebuild, kept across `setPlan`. `replace: true` clears tints not listed. |
 | `setPipelineTints({ [pipelineId]: color \| null }, { replace? })` / `setPipelineTint(id, color \| null)` / `getPipelineTints()` | The same for pipelines, e.g. red for a leak alarm: the tint replaces the pipe color. In place, kept across `setPlan`. |
 | `setPipelineFlow(id, 'forward' \| 'reverse' \| null)` / `setPipelineFlows({ [id]: direction \| null }, { replace? })` / `getPipelineFlows()` | Show the flow in a pipeline as beads moving along it (`forward`: from its first point to its last). Kept across `setPlan`. The viewer renders every frame only while beads are visible; with `prefers-reduced-motion` they stand still. |
+| `setPipeMinWidth(px)` / `getPipeMinWidth()` | Minimum on-screen width of pipelines in pixels (default 2.5; 0 draws the real diameter always). |
 | `setShowModels(boolean)` / `getShowModels()` | Show or hide markers' 3D models (also the `showModels` option). Models are always drawn decolorized; `marker.color` is their accent. |
 | `setAssets(assets)` / `getAssets()` | The 3D models markers can show (`marker.model`). Rebuilds the scene; each GLB loads once and is shared. See [3D model assets](assets.md). |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
 | `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. Replacing a points or heatmap layer with the same type updates it in place (see [Live updates](#live-updates)). |
 | `updateLayer(id, patch)` | Merge `patch` into an existing layer and apply it like `setLayer`, e.g. `{ points }` or `{ showLabels: false }`. Returns false if there is no such layer. |
-| `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
+| `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker, pipeline or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
 | `clearHighlight()` | Remove the focus highlight. |
 | `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the plan position is in the middle of the view without changing the zoom (2D) or the camera's distance and angle (3D: the orbit target moves to the position on the level's floor). Switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps; camera input cancels it. Returns false for an unknown level. |
 | `fitView()` | Frame the visible levels. The mouse wheel zooms toward the pointer (down to 30 cm from a surface in 3D). |
@@ -129,7 +130,7 @@ setInterval(async () => {
 
 ### Focus
 
-`focus(target, options)` moves the camera to a target (keeping the zoom and, in 3D, the viewing angle), switches to the target's level if it isn't visible (emitting `levelchange`) and highlights it: a ring around points, markers and positions, an outline along rooms and walls, drawn on top of everything in the `colors.highlight` color (default amber). Use it for "Show on floor plan" links.
+`focus(target, options)` moves the camera to a target (keeping the zoom and, in 3D, the viewing angle), switches to the target's level if it isn't visible (emitting `levelchange`) and highlights it: a ring around points, markers and positions, an outline along rooms, walls and pipelines (a pipeline is centered on the middle of its length, at its height), drawn on top of everything in the `colors.highlight` color (default amber). Use it for "Show on floor plan" links.
 
 ```ts
 viewer.focus({ kind: 'point', layerId: 'sensors', id: 's1' });                    // follows the point when the layer updates
@@ -137,7 +138,7 @@ viewer.focus({ kind: 'room', id: 'room_lobby' }, { highlight: { color: '#22d3ee'
 viewer.focus({ kind: 'position', levelId: 'level_ground', position: { x: 12, y: 4 } }, { highlight: false });
 ```
 
-Targets: `{ kind: 'point', layerId, id }`, `{ kind: 'room' | 'wall' | 'marker', id, levelId? }` and `{ kind: 'position', levelId, position }`. The highlight stays until `clearHighlight()`, the next `focus()` or its `duration` (ms), and survives `setPlan` while the target still exists.
+Targets: `{ kind: 'point', layerId, id }`, `{ kind: 'room' | 'wall' | 'marker' | 'pipeline', id, levelId? }` and `{ kind: 'position', levelId, position }`. The highlight stays until `clearHighlight()`, the next `focus()` or its `duration` (ms), and survives `setPlan` while the target still exists.
 
 ### Heatmap layer: interpolate values across the floor
 

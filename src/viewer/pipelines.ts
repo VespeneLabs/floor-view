@@ -10,6 +10,19 @@ const RADIAL_SEGMENTS = 16;
  * `userData.hitProxy`.
  */
 export const PIPE_HIT_RADIUS = 0.15;
+/** Default minimum on-screen pipe width in pixels (see `updatePipeWidths`). */
+export const PIPE_MIN_PIXELS = 2.5;
+
+/**
+ * `userData.pipeScale` of a pipe part whose thickness follows the view (`updatePipeWidths`): its
+ * real `radius` (m), whether it is a `tube` (scaled across, not along) and how much thicker than
+ * the tube it is drawn (`factor`, e.g. tee bodies and flow beads).
+ */
+export interface PipeScale {
+  radius: number;
+  tube: boolean;
+  factor: number;
+}
 
 /**
  * A pipeline's scene objects. `group.userData.pipeline` holds the shared pipe `material` and its
@@ -64,6 +77,7 @@ export function buildPipelines(level: Level, defaultColor: string, pick: (mesh: 
         if (length > 1e-6) {
           const mesh = new THREE.Mesh(cylinder, material);
           mesh.scale.set(r, length, r);
+          mesh.userData.pipeScale = { radius: r, tube: true, factor: 1 } satisfies PipeScale;
           mesh.position.copy(a).add(b).multiplyScalar(0.5);
           mesh.quaternion.setFromUnitVectors(UP, b.clone().sub(a).normalize());
           add(mesh);
@@ -80,6 +94,7 @@ export function buildPipelines(level: Level, defaultColor: string, pick: (mesh: 
       if (i > 0 && next) {
         const joint = new THREE.Mesh(sphere, material);
         joint.scale.setScalar(r);
+        joint.userData.pipeScale = { radius: r, tube: false, factor: 1 } satisfies PipeScale;
         joint.position.copy(world(p));
         add(joint);
       }
@@ -96,13 +111,63 @@ export function buildPipelines(level: Level, defaultColor: string, pick: (mesh: 
     if (!host || !pipe || !branch) continue;
     const { material } = host.userData.pipeline as PipelineUserData;
     const fitting = new THREE.Mesh(new THREE.SphereGeometry(1, RADIAL_SEGMENTS, 12), material);
-    fitting.scale.setScalar(Math.max(pipe.diameter, branch.diameter) * 0.68);
+    const size = Math.max(pipe.diameter, branch.diameter) * 0.68;
+    fitting.scale.setScalar(size);
+    fitting.userData.pipeScale = { radius: size, tube: false, factor: 1.36 } satisfies PipeScale;
     fitting.position.copy(world(j.point));
     pick(fitting, pipe.id);
     host.add(fitting);
   }
 
   return groups;
+}
+
+const scratchA = new THREE.Vector3();
+const scratchB = new THREE.Vector3();
+const scratchC = new THREE.Vector3();
+const scratchLine = new THREE.Line3();
+
+/** World size of one screen pixel at `distance` from the camera (any distance for an orthographic one). */
+export function worldPerPixel(camera: THREE.Camera, distance: number, viewportHeight: number): number {
+  if (viewportHeight <= 0) return 0;
+  if ((camera as THREE.OrthographicCamera).isOrthographicCamera) {
+    const ortho = camera as THREE.OrthographicCamera;
+    return (ortho.top - ortho.bottom) / ortho.zoom / viewportHeight;
+  }
+  const persp = camera as THREE.PerspectiveCamera;
+  return (2 * Math.max(distance, persp.near) * Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2)) / persp.zoom / viewportHeight;
+}
+
+/**
+ * Keep pipes visible from far away: thicken every pipe part under `root` (tubes, joints, tees,
+ * flow beads) so it is at least `minPixels` wide on screen, and give it its real size back up
+ * close. A tube is measured at its point nearest to the camera, so it never looks swollen in the
+ * foreground. Call before rendering; `minPixels` 0 restores the real sizes.
+ */
+export function updatePipeWidths(root: THREE.Object3D, camera: THREE.Camera, viewportHeight: number, minPixels = PIPE_MIN_PIXELS): void {
+  const eye = camera.getWorldPosition(scratchC);
+  root.traverse((object) => {
+    const spec = object.userData.pipeScale as PipeScale | undefined;
+    if (!spec) return;
+    let radius = spec.radius;
+    if (minPixels > 0) {
+      object.updateWorldMatrix(true, false);
+      let distance: number;
+      if (spec.tube) {
+        // The unit cylinder runs from y = -0.5 to 0.5.
+        scratchLine.set(scratchA.set(0, -0.5, 0).applyMatrix4(object.matrixWorld), scratchB.set(0, 0.5, 0).applyMatrix4(object.matrixWorld));
+        distance = scratchLine.closestPointToPoint(eye, true, scratchA).distanceTo(eye);
+      } else {
+        distance = scratchA.setFromMatrixPosition(object.matrixWorld).distanceTo(eye);
+      }
+      radius = Math.max(radius, (spec.factor * minPixels * worldPerPixel(camera, distance, viewportHeight)) / 2);
+    }
+    if (spec.tube) {
+      if (object.scale.x !== radius) object.scale.set(radius, object.scale.y, radius);
+    } else if (object.scale.x !== radius) {
+      object.scale.setScalar(radius);
+    }
+  });
 }
 
 /** Distance between flow beads along a pipe (m) and their speed (m/s). */
@@ -133,6 +198,7 @@ export class PipelineFlow {
     for (let i = 0; i < count; i++) {
       const bead = new THREE.Mesh(geometry, material);
       bead.scale.setScalar(radius);
+      bead.userData.pipeScale = { radius, tube: false, factor: 1.5 } satisfies PipeScale;
       this.group.add(bead);
     }
     this.update(null);

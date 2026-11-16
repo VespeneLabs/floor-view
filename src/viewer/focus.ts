@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { polygonCentroid } from '../model/geometry';
+import { pipelineLength, pointAlongPipeline } from '../model/pipeline';
 import type { FloorPlan, Point } from '../model/types';
 
 /** What `FloorplanViewer.focus()` can move to. */
@@ -8,7 +9,7 @@ export type FocusTarget =
   /** A data point of a points layer. */
   | { kind: 'point'; layerId: string; id: string }
   /** A plan entity; `levelId` is optional (looked up). */
-  | { kind: 'room' | 'wall' | 'marker'; id: string; levelId?: string }
+  | { kind: 'room' | 'wall' | 'marker' | 'pipeline'; id: string; levelId?: string }
   /** Any position on a level, in plan meters. */
   | { kind: 'position'; levelId: string; position: Point };
 
@@ -52,6 +53,20 @@ export function resolveFocus(plan: FloorPlan, target: FocusTarget, points: Point
       if (wall) {
         const center = { x: (wall.start.x + wall.end.x) / 2, y: (wall.start.y + wall.end.y) / 2 };
         return { levelId: level.id, center, height: 0, shape: { type: 'outline', points: [{ ...wall.start }, { ...wall.end }], closed: false, width: wall.thickness + 0.2 } };
+      }
+    } else if (target.kind === 'pipeline') {
+      const pipe = level.pipelines.find((p) => p.id === target.id);
+      const mid = pipe && pointAlongPipeline(pipe, pipelineLength(pipe) / 2);
+      if (pipe && mid) {
+        // The plan route, without the repeated positions of risers.
+        const points: Point[] = [];
+        for (const p of pipe.points) {
+          const last = points.at(-1);
+          if (!last || last.x !== p.x || last.y !== p.y) points.push({ x: p.x, y: p.y });
+        }
+        const shape: ResolvedFocus['shape'] =
+          points.length > 1 ? { type: 'outline', points, closed: false, width: pipe.diameter + 0.2 } : { type: 'ring', radius: pipe.diameter / 2 + 0.3 };
+        return { levelId: level.id, center: { x: mid.x, y: mid.y }, height: mid.z, shape };
       }
     } else {
       const marker = level.markers.find((m) => m.id === target.id);

@@ -162,7 +162,7 @@ const n2 = gasMedium('N2')!;
 editor.setPipeSettings({ medium: n2.id, color: n2.color, diameter: n2.diameter, name: n2.name }); // "Nitrogen 1, 2…"
 ```
 
-Fittings from the kit (valve boxes, regulators, the old `pipe-run`/`pipe-tee` models) snap onto drawn pipelines with the marker tool; see [editor](editor.md#pipelines).
+Fittings from the kit (valve boxes, regulators, the old `pipe-run`/`pipe-tee` models) snap onto drawn pipelines with the marker tool; see [editor](editor.md#pipelines). The old pipe section models (`pipe-run`, `pipe-run-long`, `pipe-run-corner`, `pipe-run-tee`, `pipe-riser`) are `ai: false`: the AI assistant draws pipelines instead, and takes `GAS_MEDIA` as its media list (see [architect](architect.md#pipelines)).
 
 **Pipe supports.** The viewer draws pipelines without supports. For a realistic plan, place **Pipe support** (`pipe-floor-support`) markers along a run: with the marker tool they snap under the pipe and turn across it, and since the model is `mounted` they stay on the floor instead of being raised to the pipe. The model holds one pipe at 2.6 m, the editor's default pipe height.
 

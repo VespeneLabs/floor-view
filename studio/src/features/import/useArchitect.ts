@@ -7,6 +7,7 @@ import {
   type FacilityBrief,
   type Scan,
 } from '@vespenelabs/floorview/architect';
+import { GAS_MEDIA } from '@vespenelabs/floorview/gas';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { ASSETS } from '@/lib/assets';
@@ -24,10 +25,13 @@ export const MODELS_OPTION = 'Machines, equipment and furniture (3D models)';
 /**
  * React binding for the library's `ArchitectController`, which runs the assistant's tool loop
  * against Studio's dev-server endpoint (POST /api/architect, see studio/vite.config.ts).
- * With `MODELS_OPTION` checked, the assistant gets Studio's asset catalog to place 3D models.
+ * With `MODELS_OPTION` checked, the assistant gets Studio's asset catalog to place 3D models. It
+ * always gets the Gas kit's pipe media, so proposed pipelines take their colors and sizes.
  */
 export function useArchitect(scan: Scan | null) {
-  const [controller] = useState(() => new ArchitectController({ transport: createFetchTransport({ url: DEFAULT_ARCHITECT_ENDPOINT }) }));
+  const [controller] = useState(
+    () => new ArchitectController({ transport: createFetchTransport({ url: DEFAULT_ARCHITECT_ENDPOINT }), media: GAS_MEDIA }),
+  );
   const state: ArchitectState = useSyncExternalStore(
     (onChange) => controller.on('change', onChange),
     () => controller.getState(),

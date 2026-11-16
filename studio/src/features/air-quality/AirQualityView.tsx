@@ -11,7 +11,7 @@ import { Clock, Pause, Play } from 'lucide-react';
 import { useEffect, useId, useRef, useState, useTransition } from 'react';
 
 import { bandOf, colorFor, formatValue, METRIC_IDS, METRICS, severity, type Metric, type MetricId } from './metrics';
-import { formatHour, readingAt, sensorsFor, type Reading, type Sensor } from './simulation';
+import { formatHour, pipelineAlerts, readingAt, sensorsFor, type Reading, type Sensor } from './simulation';
 import { StatusBadge, MetricLegend } from './widgets';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
@@ -171,6 +171,15 @@ export function AirQualityView() {
     // on those inputs instead of the (always new) derived objects.
   }, [viewer, plan, metric, hour, theme, showValues]);
 
+  // Pipelines that pass through a room with a poor reading are tinted in the alert color.
+  const poorRooms = new Set(sensors.filter((s) => bandOf(metric, readings.get(s.id)![metricId]).tone === 'poor').map((s) => s.roomId));
+  const alerts = plan ? pipelineAlerts(plan, poorRooms) : [];
+  const alertKey = alerts.map((a) => a.id).join(' ');
+  useEffect(() => {
+    const color = cssToken('--destructive');
+    viewer?.setPipelineTints(Object.fromEntries(alertKey ? alertKey.split(' ').map((id) => [id, color]) : []), { replace: true });
+  }, [viewer, alertKey, theme]);
+
   const ranked = [...sensors].sort(
     (a, b) => severity(metric, readings.get(b.id)![metricId]) - severity(metric, readings.get(a.id)![metricId]),
   );
@@ -293,6 +302,33 @@ export function AirQualityView() {
               ))}
             </div>
           </section>
+
+          {alerts.length > 0 && (
+            <section className="grid grid-cols-1 gap-1" aria-labelledby="aq-pipes">
+              <h3 id="aq-pipes" className="text-xs text-muted-foreground">
+                Pipelines in rooms with poor readings
+              </h3>
+              <ul className="grid grid-cols-1 gap-1">
+                {alerts.map((a) => (
+                  <li key={a.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLevel(a.levelId);
+                        viewer?.focus({ kind: 'pipeline', id: a.id }, { highlight: { duration: 4000 } });
+                        announce(`${a.name} passes through ${a.roomName}`);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    >
+                      <span aria-hidden className="h-1 w-4 shrink-0 rounded-full bg-destructive" />
+                      <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                      <span className="truncate text-muted-foreground">{a.roomName}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="grid grid-cols-1 gap-1" aria-labelledby="aq-list">
             <div className="flex items-center justify-between gap-2">

@@ -2,8 +2,9 @@
  * Wire protocol between the browser (`ArchitectController`) and the architect endpoint
  * (`runArchitectTurn` / `createArchitectMiddleware`).
  *
- * Request: `{ messages, assets? }`, the whole conversation (append-only) plus the 3D models the
- * assistant may place (send the same list on every turn of a conversation). Response: newline-delimited JSON
+ * Request: `{ messages, assets?, media? }`, the whole conversation (append-only) plus the 3D models
+ * the assistant may place and the pipe media it may use (send the same lists on every turn of a
+ * conversation). Response: newline-delimited JSON
  * (`application/x-ndjson`) events streaming one model turn; the browser runs the tool loop.
  *
  * Messages use the Anthropic Messages shape (role + content blocks). These are the library's own
@@ -61,10 +62,24 @@ export interface ArchitectAsset {
   description?: string;
 }
 
+/**
+ * A pipe medium the assistant may give a pipeline: the parts of a `PipeMedium` it needs. The server
+ * renders the list into its own cached prompt block (see `formatMediaCatalog`).
+ */
+export interface ArchitectMedium {
+  /** `PipeMedium.id`, put into `pipeline.medium`. */
+  id: string;
+  name: string;
+  /** Typical outer diameter in meters. */
+  diameter: number;
+}
+
 export interface ArchitectRequest {
   messages: ArchitectMessage[];
   /** Models the assistant may place. Omit (or send none) for plans without 3D models. */
   assets?: ArchitectAsset[];
+  /** Pipe media the assistant may use for pipelines. Omit to let it name media freely. */
+  media?: ArchitectMedium[];
 }
 
 /** Why a turn ended: `end_turn`, `tool_use`, `max_tokens`, `refusal`, … (provider-defined). */

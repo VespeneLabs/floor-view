@@ -36,6 +36,7 @@ import {
   segmentRotation,
   syncPipelineLinks,
 } from '../model/pipeline';
+import { routePipeline } from '../model/routing';
 import type { Entity, EntityRef, FloorPlan, Level, Marker, PipePoint, Pipeline, Point, Room, Underlay, Wall } from '../model/types';
 import { orthoPoint, snapToWallFace } from './pipes';
 import { pointsAttr, svg } from './svg';
@@ -163,6 +164,8 @@ type Drag =
       fittings?: { id: string; original: Point }[];
     }
   | { type: 'handle'; ref: EntityRef; index: number; before: FloorPlan; moved: boolean }
+  /** A pipeline segment (`original[index]` to `original[index + 1]`) dragged sideways. */
+  | { type: 'segment'; ref: EntityRef; index: number; start: Point; before: FloorPlan; original: PipePoint[]; moved: boolean }
   | { type: 'overlay'; id: string; start: Point; original: Point; moved: boolean };
 
 type Draft = { kind: 'wall' | 'room'; points: Point[] } | { kind: 'pipe'; points: PipePoint[]; from?: string };
@@ -186,6 +189,8 @@ const HIT_PX = 6;
 const SNAP_PX = 10;
 /** Overlay point radius and hit tolerance in screen pixels. */
 const OVERLAY_PX = 7;
+/** Segments of the selected pipeline shorter than this on screen get no drag handle. */
+const SEGMENT_HANDLE_MIN_PX = 36;
 /** Rotation step (degrees) of the Q/E keys; Shift: 90°. */
 const ROTATE_STEP = 15;
 const MIN_SCALE = 4;
@@ -212,6 +217,8 @@ export class FloorplanEditor {
   private levelId: string;
   private tool: EditorTool;
   private selection: EntityRef | null = null;
+  /** The vertex of the selected pipeline that was pressed last: Delete removes it. */
+  private activeVertex: number | null = null;
   private grid: number;
   private snapEnabled: boolean;
   private wallThickness: number;
@@ -338,7 +345,7 @@ export class FloorplanEditor {
     this.element.toggleAttribute('data-readonly', readOnly);
     if (readOnly) {
       this.draft = null;
-      if (this.drag?.type === 'move' || this.drag?.type === 'handle') this.cancelDrag();
+      if (this.drag?.type === 'move' || this.drag?.type === 'handle' || this.drag?.type === 'segment') this.cancelDrag();
     }
     this.ensureAllowedTool();
     this.render();
@@ -389,6 +396,52 @@ export class FloorplanEditor {
 
   getPipeSettings(): PipeSettings {
     return { ...this.pipe };
+  }
+
+  /**
+   * Connect two markers on a level with a new pipeline, routed automatically (`routePipeline`:
+   * orthogonal, few bends, beside walls) at the pipe settings' elevation, as one undoable step, and
+   * select it. The pipe tool does the same when a pipeline started on one marker is ended on
+   * another with the next click. Returns a copy of the pipeline, or null for unknown or identical
+   * markers and in read-only mode.
+   */
+  connectMarkers(fromId: string, toId: string, levelId: string = this.levelId): Pipeline | null {
+    const level = getLevel(this.plan, levelId);
+    const from = level?.markers.find((m) => m.id === fromId);
+    const to = level?.markers.find((m) => m.id === toId);
+    if (!level || !from || !to || this.readOnly) return null;
+    const points = this.route(level, from.position, to.position, this.pipe.elevation);
+    if (!points) return null;
+    if (levelId !== this.levelId) this.setActiveLevel(levelId);
+    const pipe = this.commitPipe(points, fromId, toId);
+    return pipe && structuredClone(pipe);
+  }
+
+  /**
+   * Route an existing pipeline again between its two ends (`routePipeline`), e.g. after its
+   * equipment moved, as one undoable step. The run takes the pipeline's greatest height; risers at
+   * its ends, its links and its other properties stay. Returns false when there is nothing to route
+   * (unknown pipeline, both ends at one position, read-only).
+   */
+  reroutePipeline(ref: EntityRef): boolean {
+    const level = getLevel(this.plan, ref.levelId);
+    const pipe = ref.kind === 'pipeline' ? level?.pipelines.find((p) => p.id === ref.id) : undefined;
+    if (!level || !pipe || this.readOnly) return false;
+    const z = Math.max(...pipe.points.map((p) => p.z));
+    const head = pipelineEndRun(pipe, 'start').map((i) => ({ ...pipe.points[i]! }));
+    const tail = pipelineEndRun(pipe, 'end').map((i) => ({ ...pipe.points[i]! })).reverse();
+    const route = this.route(level, head[0]!, tail.at(-1)!, z, pipe.diameter);
+    if (!route) return false;
+    this.activeVertex = null;
+    this.mutate(() => {
+      pipe.points = dedupePoints([...head, ...route, ...tail]);
+      this.alignFittings(level, pipe);
+    });
+    return true;
+  }
+
+  private route(level: Level, from: Point, to: Point, elevation: number, diameter = this.pipe.diameter): PipePoint[] | null {
+    return routePipeline(level, from, to, { elevation, diameter, ...(this.grid > 0 ? { grid: this.grid } : {}) });
   }
 
   /**
@@ -535,6 +588,7 @@ export class FloorplanEditor {
   select(ref: EntityRef | null): void {
     const same = ref?.id === this.selection?.id && ref?.kind === this.selection?.kind;
     this.selection = ref && findEntity(this.plan, ref) ? { ...ref } : null;
+    if (!same) this.activeVertex = null;
     if (this.selection && this.overlaySelection) {
       this.overlaySelection = null;
       this.events.emit('overlaypointselect', null);
@@ -687,6 +741,7 @@ export class FloorplanEditor {
   private restore(plan: FloorPlan): void {
     this.plan = plan;
     this.draft = null;
+    this.activeVertex = null;
     if (!getLevel(this.plan, this.levelId)) {
       this.levelId = this.plan.levels[0]!.id;
       this.events.emit('levelchange', this.levelId);
@@ -728,7 +783,7 @@ export class FloorplanEditor {
   private cancelDrag(): void {
     const drag = this.drag;
     this.drag = null;
-    if (drag?.type === 'move' || drag?.type === 'handle') this.plan = drag.before;
+    if (drag?.type === 'move' || drag?.type === 'handle' || drag?.type === 'segment') this.plan = drag.before;
   }
 
   private commitRoom(points: Point[]): void {
@@ -739,13 +794,13 @@ export class FloorplanEditor {
     this.select({ kind: 'room', id: room.id, levelId: level.id });
   }
 
-  private commitPipe(draftPoints: PipePoint[], from?: string, to?: string): void {
+  private commitPipe(draftPoints: PipePoint[], from?: string, to?: string): Pipeline | null {
     const points: PipePoint[] = [];
     for (const p of draftPoints) {
       const last = points.at(-1);
       if (!last || last.x !== p.x || last.y !== p.y || last.z !== p.z) points.push({ ...p });
     }
-    if (points.length < 2) return;
+    if (points.length < 2) return null;
     const level = this.getActiveLevel();
     const { name, diameter, medium, color } = this.pipe;
     const base = name || 'Pipeline';
@@ -761,6 +816,7 @@ export class FloorplanEditor {
     if (to && to !== from) pipe.to = to;
     this.mutate(() => level.pipelines.push(pipe));
     this.select({ kind: 'pipeline', id: pipe.id, levelId: level.id });
+    return pipe;
   }
 
   /**
@@ -917,7 +973,7 @@ export class FloorplanEditor {
     return asset ? markerFootprint(marker, asset) : null;
   }
 
-  private hitTest(p: Point): { ref: EntityRef; handle?: number } | null {
+  private hitTest(p: Point): { ref: EntityRef; handle?: number; segment?: number } | null {
     const level = this.getActiveLevel();
     const tol = HIT_PX / this.view.scale;
     const ref = (kind: EntityRef['kind'], id: string): EntityRef => ({ kind, id, levelId: level.id });
@@ -928,6 +984,10 @@ export class FloorplanEditor {
       if (entity) {
         const index = entityPoints(this.selection.kind, entity).findIndex((q) => distance(p, q) <= tol * 1.5);
         if (index >= 0) return { ref: this.selection, handle: index };
+        if (this.selection.kind === 'pipeline') {
+          const grip = segmentHandles(entity as Pipeline, 1 / this.view.scale).find((h) => distance(p, h.point) <= tol * 1.5);
+          if (grip) return { ref: this.selection, segment: grip.segment };
+        }
       }
     }
     for (const m of [...level.markers].reverse()) {
@@ -987,8 +1047,13 @@ export class FloorplanEditor {
           this.editPipelineVertex(entity as Pipeline, raw, hit.handle);
           return;
         }
+        this.activeVertex = hit.handle !== undefined && hit.ref.kind === 'pipeline' ? hit.handle : null;
         if (hit.handle !== undefined) {
           this.drag = { type: 'handle', ref: hit.ref, index: hit.handle, before: clonePlan(this.plan), moved: false };
+          this.render();
+        } else if (hit.segment !== undefined) {
+          const original = (entity as Pipeline).points.map((q) => ({ ...q }));
+          this.drag = { type: 'segment', ref: hit.ref, index: hit.segment, start: raw, before: clonePlan(this.plan), original, moved: false };
         } else {
           this.select(hit.ref);
           const level = this.getActiveLevel();
@@ -1035,7 +1100,8 @@ export class FloorplanEditor {
    * Pipe tool click. The first click starts a pipeline (attached to a marker it lands on, or at a
    * pipeline's height for a tee). Later clicks add points at the current elevation; a click on a
    * marker or another pipeline adds the last point there and finishes (a riser is added if that
-   * pipeline is at another height). Clicking the last point again finishes.
+   * pipeline is at another height). Clicking the last point again finishes. A pipeline started on
+   * a marker and ended on another marker with the very next click is routed automatically.
    */
   private pipeClick(raw: Point, event: PointerEvent): void {
     const draft = this.draft?.kind === 'pipe' ? this.draft : null;
@@ -1053,6 +1119,9 @@ export class FloorplanEditor {
     }
     const z = this.pipe.elevation;
     const at = roundPoint(t.point);
+    const direct = t.marker && draft.from && t.marker !== draft.from && draft.points.every((q) => q.x === last.x && q.y === last.y);
+    const routed = direct ? this.route(this.getActiveLevel(), last, at, z) : null;
+    if (routed) draft.points.push(...routed.slice(1, -1));
     draft.points.push({ ...at, z });
     if (t.z !== undefined && t.z !== z) draft.points.push({ ...at, z: t.z });
     if (t.marker || t.pipeline) {
@@ -1068,20 +1137,80 @@ export class FloorplanEditor {
    */
   private editPipelineVertex(pipe: Pipeline, p: Point, handle: number | undefined): void {
     if (handle !== undefined) {
-      const anchor = pipe.points[handle]!;
-      const keep = pipe.points.filter((q) => q.x !== anchor.x || q.y !== anchor.y);
-      if (keep.length < 2) return;
-      this.mutate(() => {
-        // Removing an end detaches it from its marker.
-        if (handle === 0 || pointsEqual(pipe.points[0]!, anchor)) delete pipe.from;
-        if (pointsEqual(pipe.points.at(-1)!, anchor)) delete pipe.to;
-        pipe.points = keep;
-      });
+      this.removePipelineVertex(pipe, handle);
       return;
     }
     const hit = nearestPointOnPipeline(pipe, p);
     if (!hit || hit.t <= 0 || hit.t >= 1) return;
     this.mutate(() => pipe.points.splice(hit.segment + 1, 0, roundPoint(hit.point)));
+  }
+
+  /**
+   * Remove a vertex of a pipeline (with its riser) as one undoable step. False when that would
+   * leave fewer than two points.
+   */
+  private removePipelineVertex(pipe: Pipeline, index: number): boolean {
+    const anchor = pipe.points[index];
+    if (!anchor) return false;
+    const keep = dedupePoints(pipe.points.filter((q) => q.x !== anchor.x || q.y !== anchor.y));
+    if (keep.length < 2) return false;
+    this.activeVertex = null;
+    this.mutate(() => {
+      // Removing an end detaches it from its marker.
+      if (pointsEqual(pipe.points[0]!, anchor)) delete pipe.from;
+      if (pointsEqual(pipe.points.at(-1)!, anchor)) delete pipe.to;
+      pipe.points = keep;
+    });
+    return true;
+  }
+
+  /**
+   * Drag a segment of the selected pipeline sideways (perpendicular to itself, on the grid), with
+   * the risers at its ends; the neighbouring segments stretch. An end attached to equipment stays
+   * there: the pipe gets a new corner next to it instead.
+   */
+  private dragPipelineSegment(drag: Extract<Drag, { type: 'segment' }>, pipe: Pipeline, raw: Point, event: PointerEvent): void {
+    const level = getLevel(this.plan, drag.ref.levelId);
+    const a = drag.original[drag.index];
+    const b = drag.original[drag.index + 1];
+    if (!level || !a || !b) return;
+    const length = distance(a, b);
+    if (length < 1e-9) return;
+    const normal = { x: -(b.y - a.y) / length, y: (b.x - a.x) / length };
+    let d = (raw.x - drag.start.x) * normal.x + (raw.y - drag.start.y) * normal.y;
+    if (this.snapEnabled && !event.altKey && this.grid > 0) {
+      // An axis-aligned segment lands on a grid line; any other moves in grid steps.
+      const axis = Math.abs(normal.x) > 0.999 ? 'x' : Math.abs(normal.y) > 0.999 ? 'y' : null;
+      d = axis ? (snapToGrid({ x: a.x + normal.x * d, y: a.y + normal.y * d }, this.grid)[axis] - a[axis]) * normal[axis] : Math.round(d / this.grid) * this.grid;
+    }
+    const shift = <T extends Point>(q: T): T => roundPoint({ ...q, x: q.x + normal.x * d, y: q.y + normal.y * d });
+
+    const runA = sameSpotRun(drag.original, drag.index);
+    const runB = sameSpotRun(drag.original, drag.index + 1);
+    const last = drag.original.length - 1;
+    const holdA = runA.includes(0) && !!pipe.from;
+    const holdB = runB.includes(last) && !!pipe.to;
+    const points: PipePoint[] = [];
+    drag.original.forEach((q, i) => {
+      const inA = runA.includes(i);
+      const inB = runB.includes(i);
+      if (inB && holdB && i === drag.index + 1) points.push(shift(q)); // the new corner before a held end
+      points.push((inA && !holdA) || (inB && !holdB) ? shift(q) : { ...q });
+      if (inA && holdA && i === drag.index) points.push(shift(q)); // the new corner after a held start
+    });
+    pipe.points = dedupePoints(points);
+    drag.moved = d !== 0;
+    this.syncPipes(level);
+    this.alignFittings(level, pipe);
+  }
+
+  /** Turn the fittings of a reshaped pipeline along the segments they are on now. */
+  private alignFittings(level: Level, pipe: Pipeline): void {
+    for (const m of level.markers) {
+      if (m.pipelineId !== pipe.id) continue;
+      const hit = nearestPointOnPipeline(pipe, m.position);
+      if (hit) m.rotation = fittingRotation(pipe, hit.segment, m.rotation ?? 0);
+    }
   }
 
   private startPan(event: PointerEvent): void {
@@ -1147,6 +1276,9 @@ export class FloorplanEditor {
         drag.moved ||= !pointsEqual(next, drag.original);
         point.position = next;
       }
+    } else if (drag?.type === 'segment') {
+      const entity = findEntity(this.plan, drag.ref);
+      if (entity) this.dragPipelineSegment(drag, entity as Pipeline, raw, event);
     } else if (drag?.type === 'handle') {
       const entity = findEntity(this.plan, drag.ref);
       if (drag.ref.kind === 'pipeline' && entity) {
@@ -1237,11 +1369,7 @@ export class FloorplanEditor {
       if (t.z !== undefined && run.length === 1) pipe.points[drag.index]!.z = t.z;
     }
     this.syncPipes(level);
-    for (const m of level.markers) {
-      if (m.pipelineId !== pipe.id) continue;
-      const hit = nearestPointOnPipeline(pipe, m.position);
-      if (hit) m.rotation = fittingRotation(pipe, hit.segment, m.rotation ?? 0);
-    }
+    this.alignFittings(level, pipe);
   }
 
   private onPointerUp = (event: PointerEvent): void => {
@@ -1249,7 +1377,7 @@ export class FloorplanEditor {
     const drag = this.drag;
     this.drag = null;
     this.element.classList.remove('is-panning');
-    if ((drag?.type === 'move' || drag?.type === 'handle') && drag.moved) {
+    if ((drag?.type === 'move' || drag?.type === 'handle' || drag?.type === 'segment') && drag.moved) {
       this.history.push(drag.before);
       this.emitChange();
     } else if (drag?.type === 'overlay' && drag.moved) {
@@ -1319,7 +1447,10 @@ export class FloorplanEditor {
       this.finishDraft();
     } else if ((key === 'delete' || key === 'backspace') && !this.readOnly) {
       event.preventDefault();
-      this.deleteSelection();
+      // A pressed pipeline vertex goes first; the pipeline itself when that was its last corner.
+      const sel = this.selection;
+      const pipe = sel?.kind === 'pipeline' && this.activeVertex !== null ? (findEntity(this.plan, sel) as Pipeline | undefined) : undefined;
+      if (!pipe || !this.removePipelineVertex(pipe, this.activeVertex!)) this.deleteSelection();
     } else if (key === 'f') {
       this.fitView();
     } else if (key === 'q' || key === 'e') {
@@ -1403,8 +1534,23 @@ export class FloorplanEditor {
     if (sel && sel.kind !== 'marker' && !this.readOnly) {
       const entity = findEntity(this.plan, sel);
       if (entity) {
-        for (const p of entityPoints(sel.kind, entity)) {
-          svg('circle', { cx: p.x, cy: p.y, r: 5 * px, class: 'vl-editor__handle' }, w);
+        if (sel.kind === 'pipeline') {
+          for (const { point, angle } of segmentHandles(entity as Pipeline, px)) {
+            const half = 4 * px;
+            svg('rect', {
+              x: point.x - half * 1.75,
+              y: point.y - half,
+              width: half * 3.5,
+              height: half * 2,
+              rx: half / 2,
+              transform: `rotate(${angle} ${point.x} ${point.y})`,
+              class: 'vl-editor__handle vl-editor__handle--segment',
+            }, w);
+          }
+        }
+        for (const [i, p] of entityPoints(sel.kind, entity).entries()) {
+          const active = sel.kind === 'pipeline' && this.activeVertex !== null && pointsEqual(p, (entity as Pipeline).points[this.activeVertex] ?? { x: NaN, y: NaN });
+          svg('circle', { cx: p.x, cy: p.y, r: 5 * px, class: active ? 'vl-editor__handle is-active' : 'vl-editor__handle', 'data-index': i }, w);
         }
       }
     }
@@ -1603,6 +1749,29 @@ function carryRotation(pipe: Pipeline, from: number, to: number, rotation: numbe
   const backwards = aligned !== segmentRotation(a0, b0);
   const [a1, b1] = segmentEnds(pipe, to);
   return normalizeDegrees(segmentRotation(a1, b1) + (backwards ? 180 : 0) + (rotation - aligned));
+}
+
+/**
+ * Drag handles of a pipeline's segments: the middle of every plan segment (not risers) long enough
+ * on screen, with the segment's angle in degrees. `px` is one screen pixel in meters.
+ */
+function segmentHandles(pipe: Pipeline, px: number): { segment: number; point: Point; angle: number }[] {
+  const out: { segment: number; point: Point; angle: number }[] = [];
+  for (let i = 0; i + 1 < pipe.points.length; i++) {
+    const a = pipe.points[i]!;
+    const b = pipe.points[i + 1]!;
+    if (distance(a, b) < SEGMENT_HANDLE_MIN_PX * px) continue;
+    out.push({ segment: i, point: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, angle: segmentRotation(a, b) });
+  }
+  return out;
+}
+
+/** Drop points that repeat the one before them (same position and height). */
+function dedupePoints(points: PipePoint[]): PipePoint[] {
+  return points.filter((p, i) => {
+    const prev = points[i - 1];
+    return !prev || prev.x !== p.x || prev.y !== p.y || prev.z !== p.z;
+  });
 }
 
 /** Round to µm, so snapped and constrained points serialize cleanly. */

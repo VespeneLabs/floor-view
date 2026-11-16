@@ -11,7 +11,7 @@ import { buildHighlight, resolveFocus, type FocusOptions, type FocusTarget } fro
 import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type HeatmapGrid } from './heatmap';
 import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
 import { applyModelStyle, ModelCache, type ModelStyle } from './models';
-import { PipelineFlow, type FlowDirection, type PipelineUserData } from './pipelines';
+import { PIPE_MIN_PIXELS, PipelineFlow, updatePipeWidths, type FlowDirection, type PipelineUserData } from './pipelines';
 import { PointLayerView } from './pointLayer';
 import {
   buildPlan,
@@ -42,6 +42,12 @@ export interface ViewerOptions {
   movableMarkers?: boolean;
   /** Grid (m) that dragged markers snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
   moveGrid?: number;
+  /**
+   * Minimum on-screen width of a pipeline in pixels: thin pipes are drawn thicker from far away so
+   * they stay visible, and at their real diameter up close. 0 always draws the real diameter.
+   * Default 2.5. See `setPipeMinWidth`.
+   */
+  pipeMinWidth?: number;
 }
 
 /** `markermove`: a marker was dragged in the viewer and dropped at `position` (plan meters, snapped). */
@@ -121,6 +127,7 @@ export class FloorplanViewer {
   private showModels: boolean;
   private movableMarkers: boolean;
   private moveGrid: number;
+  private pipeMinWidth: number;
   private markerDrag: {
     id: string;
     levelId: string;
@@ -171,6 +178,7 @@ export class FloorplanViewer {
     this.showModels = options.showModels ?? true;
     this.movableMarkers = options.movableMarkers ?? false;
     this.moveGrid = options.moveGrid ?? 0.25;
+    this.pipeMinWidth = Math.max(0, options.pipeMinWidth ?? PIPE_MIN_PIXELS);
 
     this.element = document.createElement('div');
     this.element.className = 'vl-viewer';
@@ -362,6 +370,16 @@ export class FloorplanViewer {
     }
     for (const id of changed) this.applyPipelineTint(id);
     this.requestRender();
+  }
+
+  /** Minimum on-screen width of pipelines in pixels; 0 always draws the real diameter (see `ViewerOptions.pipeMinWidth`). */
+  setPipeMinWidth(pixels: number): void {
+    this.pipeMinWidth = Number.isFinite(pixels) ? Math.max(0, pixels) : PIPE_MIN_PIXELS;
+    this.requestRender();
+  }
+
+  getPipeMinWidth(): number {
+    return this.pipeMinWidth;
   }
 
   /** Tint one pipeline (see `setPipelineTints`), or remove its tint with null. */
@@ -567,7 +585,7 @@ export class FloorplanViewer {
   /**
    * Center the camera on a data point, plan entity or position (keeping the current zoom),
    * switching to its level when it isn't visible, and highlight it with a ring (points, markers,
-   * positions) or an outline (rooms, walls). The highlight stays until `clearHighlight()`, the
+   * positions) or an outline (rooms, walls, pipelines). The highlight stays until `clearHighlight()`, the
    * next `focus()` or its `duration`; it follows a focused point when its layer updates.
    * Returns false when the target doesn't exist.
    */
@@ -816,8 +834,19 @@ export class FloorplanViewer {
 
   private render(): void {
     this.dirty = false;
+    this.fitPipeWidths();
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+  }
+
+  /** Thicken distant pipes (and their flow beads) to the minimum on-screen width. */
+  private fitPipeWidths(): void {
+    const height = this.element.clientHeight;
+    for (const b of this.built) {
+      if (!b.group.visible) continue;
+      for (const group of b.pipelines.values()) updatePipeWidths(group, this.camera, height, this.pipeMinWidth);
+    }
+    for (const { view } of this.flowViews) updatePipeWidths(view.group, this.camera, height, this.pipeMinWidth);
   }
 
   /** Swap each model slot's placeholder for the loaded model (if the slot is still in the scene). */
