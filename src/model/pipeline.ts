@@ -218,3 +218,19 @@ export function pointAlongPipeline(pipeline: Pipeline, distance: number): PipePo
   }
   return { ...pts[pts.length - 1]! };
 }
+
+/**
+ * A pipe medium preset: what a pipeline carries, with its identification color and a typical
+ * diameter. Apps and kits define their own lists (the Gas kit has `GAS_MEDIA` in `/gas`). A
+ * pipeline stores only `medium: id` and its own `color`/`diameter`, so a plan never depends on a
+ * preset list.
+ */
+export interface PipeMedium {
+  /** Stored as `pipeline.medium`. Short and readable (it shows in tooltips), e.g. `"N2"`. */
+  id: string;
+  name: string;
+  /** CSS color for `pipeline.color`. */
+  color: string;
+  /** Typical diameter for a new pipeline, in meters. */
+  diameter: number;
+}

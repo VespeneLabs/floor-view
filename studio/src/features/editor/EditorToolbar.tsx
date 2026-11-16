@@ -20,6 +20,7 @@ import {
 import { useEffect, useId, useState, type ReactElement } from 'react';
 
 import { CommitInput } from '@/components/CommitInput';
+import { MediumSelect } from '@/components/MediumSelect';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -83,6 +84,7 @@ function Hint({ label, shortcut, children }: { label: string; shortcut?: string;
 /** Elevation and diameter for new pipes, shown while the pipe tool is active. */
 function PipeSettingsBar({ editor }: { editor: FloorplanEditor }) {
   const [settings, setSettings] = useState<PipeSettings>(() => editor.getPipeSettings());
+  const mediumId = useId();
   const elevationId = useId();
   const diameterId = useId();
   useEffect(() => {
@@ -92,7 +94,24 @@ function PipeSettingsBar({ editor }: { editor: FloorplanEditor }) {
   const set = (patch: Partial<PipeSettings>) => editor.setPipeSettings(patch);
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <Label htmlFor={mediumId} className="text-muted-foreground">
+        Medium
+      </Label>
+      <MediumSelect
+        id={mediumId}
+        size="sm"
+        className="min-w-36"
+        value={settings.medium}
+        onChange={(medium, id) =>
+          // A preset brings its color, typical diameter and name ("Natural gas 1, 2…").
+          set(
+            medium
+              ? { medium: medium.id, color: medium.color, diameter: medium.diameter, name: medium.name }
+              : { medium: id, color: undefined, name: undefined },
+          )
+        }
+      />
       <Label htmlFor={elevationId} className="text-muted-foreground">
         Height (m)
       </Label>

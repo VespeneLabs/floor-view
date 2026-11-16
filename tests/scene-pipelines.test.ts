@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createLevel } from '../src/model/plan';
 import { pointAlongPipeline } from '../src/model/pipeline';
 import type { PipePoint, Pipeline } from '../src/model/types';
-import { PipelineFlow, supportPositions, type PipelineUserData } from '../src/viewer/pipelines';
+import { PipelineFlow, type PipelineUserData } from '../src/viewer/pipelines';
 import { buildLevel, DEFAULT_SCENE_COLORS, disposeObject } from '../src/viewer/sceneBuilder';
 
 const pt = (x: number, y: number, z = 2.6): PipePoint => ({ x, y, z });
@@ -51,18 +51,9 @@ describe('pipelines in the scene', () => {
     expect((built.pipelines.get('n2')!.userData.pipeline as PipelineUserData).baseColor).toBe('#123456');
   });
 
-  it('puts floor supports under high horizontal runs only, spaced along them', () => {
-    expect(supportPositions(pipe('low', [pt(0, 0, 1), pt(10, 0, 1)]))).toEqual([]);
-    expect(supportPositions(pipe('riser', [pt(0, 0, 0.5), pt(0, 0, 3)]))).toEqual([]);
-    const high = supportPositions(pipe('high', [pt(0, 0), pt(9, 0), pt(9, 2)]));
-    expect(high.map((s) => [s.x, s.y])).toEqual([[1.5, 0], [4.5, 0], [7.5, 0], [9, 1]]);
-
+  it('draws no floor supports, only the pipe', () => {
     const level = createLevel({ pipelines: [pipe('p', [pt(0, 0), pt(9, 0)])] });
-    const posts = meshes(buildLevel(level).pipelines.get('p')!).filter((m) => m.geometry.type === 'BoxGeometry');
-    expect(posts).toHaveLength(6); // 3 posts + 3 cross bars
-    const post = new THREE.Box3().setFromObject(posts[0]!);
-    expect(post.min.y).toBeCloseTo(0);
-    expect(post.max.y).toBeCloseTo(2.55); // up to the bottom of the pipe
+    expect(meshes(buildLevel(level).pipelines.get('p')!).filter((m) => m.geometry.type === 'BoxGeometry')).toHaveLength(0);
   });
 
   it('adds a fitting where pipelines meet, on the pipeline that is met', () => {

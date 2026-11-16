@@ -10,15 +10,19 @@ import {
   type Room,
   type Wall,
 } from '@vespenelabs/floorview';
+import { gasMedium } from '@vespenelabs/floorview/gas';
 import { useId, type ReactNode } from 'react';
 
 import { CommitInput } from '@/components/CommitInput';
+import { MediumSelect } from '@/components/MediumSelect';
 import { Panel } from '@/components/Panel';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { VespeneLabsMark } from '@/components/VespeneLabsMark';
 import { useStudio } from '@/features/studio/studio-context';
 import { ASSETS } from '@/lib/assets';
+
+import { PipePointsTable } from './PipePointsTable';
 
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) {
   const id = useId();
@@ -135,23 +139,29 @@ export function Inspector() {
           <Field label="Name">{(id) => <CommitInput id={id} value={pipe.name} onCommit={(v) => update(selection, { name: v })} />}</Field>
           <Field label="Medium">
             {(id) => (
-              <CommitInput
+              <MediumSelect
                 id={id}
-                value={pipe.medium ?? ''}
-                placeholder="natural-gas, N2, compressed-air…"
-                onCommit={(v) => update(selection, { medium: v || undefined })}
+                className="w-full"
+                value={pipe.medium}
+                // A preset also brings its identification color (the diameter stays), and renames
+                // a pipeline still called after its old medium ("Nitrogen 1" → "Hydrogen 1").
+                onChange={(medium, value) => {
+                  const auto = pipe.name.match(/^(.*) (\d+)$/);
+                  const rename = medium && auto && auto[1] === gasMedium(pipe.medium)?.name ? { name: `${medium.name} ${auto[2]}` } : {};
+                  update(selection, medium ? { medium: medium.id, color: medium.color, ...rename } : { medium: value });
+                }}
               />
             )}
           </Field>
-          <Field label="Diameter (m)">
+          <Field label="Diameter (mm)">
             {(id) => (
               <CommitInput
                 id={id}
                 type="number"
-                step={0.005}
-                min={0.005}
-                value={pipe.diameter}
-                onCommit={(v) => positive(v) && update(selection, { diameter: Number(v) })}
+                step={5}
+                min={1}
+                value={Math.round(pipe.diameter * 10000) / 10}
+                onCommit={(v) => positive(v) && update(selection, { diameter: Number(v) / 1000 })}
               />
             )}
           </Field>
@@ -178,12 +188,10 @@ export function Inspector() {
             )}
           </Field>
           <ReadOnly label="Length (3D)" value={`${pipelineLength(pipe).toFixed(2)} m`} />
-          <ReadOnly
-            label="Height"
-            value={`${Math.min(...heights).toFixed(2)}–${Math.max(...heights).toFixed(2)} m · ${pipe.points.length} points`}
-          />
+          <ReadOnly label="Height" value={`${Math.min(...heights).toFixed(2)}–${Math.max(...heights).toFixed(2)} m`} />
           <ReadOnly label="From" value={markerName(pipe.from)} />
           <ReadOnly label="To" value={markerName(pipe.to)} />
+          <PipePointsTable pipe={pipe} onChange={(points) => update(selection, { points })} />
           <p className="text-xs text-muted-foreground">Drag a point to reshape. Alt-click the pipe to add a point, Alt-click a point to remove it.</p>
         </>
       );
@@ -228,6 +236,12 @@ export function Inspector() {
               </div>
             )}
           </Field>
+          {marker.pipelineId && (
+            <ReadOnly
+              label="On pipeline"
+              value={level?.pipelines.find((p) => p.id === marker.pipelineId)?.name ?? marker.pipelineId}
+            />
+          )}
           {marker.model && !marker.color && (
             <p className="-mt-2 text-xs text-muted-foreground">No accent: the model is drawn in white clay. An accent colors its accent parts (pipes, cylinders…), or the whole model if it has none.</p>
           )}

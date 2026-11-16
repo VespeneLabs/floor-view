@@ -40,6 +40,7 @@ export {
   pointAlongPipeline,
   segmentRotation,
   syncPipelineLinks,
+  type PipeMedium,
   type PipelineEnd,
   type PipelineJunction,
   type PipelineProjection,

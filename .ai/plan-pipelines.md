@@ -1,6 +1,6 @@
 # Plan: Pipelines (draw pipes next to walls)
 
-Status: phases 1–3 done (model, editor, viewer) · 2026-11-10 · Target: 0.7.0
+Status: phases 1–4 done (model, editor, viewer, Studio UI) · 2026-11-10 · Target: 0.7.0
 
 Our clients are mostly in the gas industry. Today a pipe is a chain of Gas kit markers
 (`pipe-run`, `pipe-run-corner`, `pipe-run-tee`, `pipe-riser`) placed by hand. This feature makes a
@@ -97,8 +97,8 @@ export interface Pipeline {
 
 1. ✅ **Model + validator + geometry** (pure, fully tested in `tests/pipeline.test.ts`). `Level.pipelines` is required in the type and normalized by `parsePlan`/`createLevel`, so the editor and viewer (which don't validate on `setPlan`) should still guard against hand-built plans without it.
 2. ✅ **Editor pipe tool + selection editing + marker coupling** (`tests/editor-pipes.test.ts`), plus a minimal Studio UI for hand testing (Draw pipes button, height/Ø bar, pipeline inspector; `CommitInput` moved to `studio/src/components/`). Deviations from the plan above: settings are one `setPipeSettings`/`getPipeSettings` + `pipesettingschange` (not separate elevation calls); Alt-click inserts/removes vertices (no "segment drag", no Delete-on-vertex); markers snap only near their center (whole-footprint snapping hijacked clicks in furnished plans, found in Studio); fitting rotation is updated when a fitting slides or its pipeline is reshaped, not on every sync; a segment touching moved equipment can become diagonal (no auto re-orthogonalising).
-3. ✅ **3D rendering + picking + tints + flow** (`src/viewer/pipelines.ts`, `tests/scene-pipelines.test.ts`). Sphere joints instead of torus elbows; invisible ≥ 15 cm hit cylinders (a 50 mm pipe was 2 px wide in Studio and practically unclickable); `setPipelineFlows` batch API; Studio gets a viewer "Flow" toggle (all pipelines forward). Not done: `focus({ kind: 'pipeline' })`, a minimum *visual* width for distant pipes.
-4. **Studio UI** (toolbar button, sub-toolbar, inspector), plus docs and PRD → release 0.7.0.
+3. ✅ **3D rendering + picking + tints + flow** (`src/viewer/pipelines.ts`, `tests/scene-pipelines.test.ts`). Sphere joints instead of torus elbows; invisible ≥ 15 cm hit cylinders (a 50 mm pipe was 2 px wide in Studio and practically unclickable); `setPipelineFlows` batch API; Studio gets a viewer "Flow" toggle (all pipelines forward). Floor supports were built and then removed at the user's request (not needed by default); a `pipe-floor-support` Gas kit model (mounted, pipe at 2.6 m) replaces them for realistic plans. Not done: `focus({ kind: 'pipeline' })`, a minimum *visual* width for distant pipes.
+4. ✅ **Studio UI + gas media** (`src/gas/media.ts`, `PipeMedium` in `src/model/pipeline.ts`, `tests/gas-media.test.ts`; Studio `MediumSelect`, `PipePointsTable`), docs and PRD, version 0.7.0. Medium ids are short codes (`NG`, `N2`, `CDA`…) because they show in tooltips. A preset sets color, diameter and name in the toolbar; in the inspector it recolors (keeps the diameter) and renames a pipeline still named after its old medium. Diameters in Studio are in mm. Not done: tinting a pipeline on a leak alarm in the air quality demo.
 5. **Phase 2:** AI architect (`pipelines` in `propose_floor_plan`, `convertProposal` validation, prompt guidance, `/gas` media in the asset catalog), and later auto-routing (source → target, orthogonal along walls).
 
 ## Risks / open points

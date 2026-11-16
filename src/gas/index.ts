@@ -31,3 +31,6 @@ export function gasAssetId(model: string): string {
 export function gasAssets(baseUrl: string): ModelAsset[] {
   return kitAssets(GAS_KIT, baseUrl);
 }
+
+export { GAS_MEDIA, gasMedium } from './media';
+export type { PipeMedium } from '../model/pipeline';

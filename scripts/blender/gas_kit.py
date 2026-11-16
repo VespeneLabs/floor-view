@@ -875,6 +875,29 @@ def pipe_run_long():
     return m
 
 
+def pipe_floor_support():
+    """Floor-standing support for one drawn pipeline at PIPE_Z (the editor's default pipe height).
+
+    The pipe runs along X. Marked `mounted` (it is authored at its real height above the floor), so
+    when it snaps onto a pipeline as a fitting the editor aligns it with the pipe but leaves it on the
+    floor instead of centering it on the pipe.
+    """
+    m = Model()
+    m.mounted = True
+    saddle = PIPE_Z - 0.03                                                          # under a ~50 mm pipe
+    m.box(0.22, 0.22, 0.02, 0, 0, 0, 'metal', bevel=0.003)                          # base plate
+    for x in (-0.08, 0.08):                                                          # anchor bolts
+        for y in (-0.08, 0.08):
+            m.vcyl(0.008, 0.03, x, y, 0.02, 'dark', seg=8)
+    m.box(0.06, 0.06, saddle - 0.06, 0, 0, 0.02, 'metal', bevel=0.005)              # post
+    m.box(0.06, 0.32, 0.04, 0, 0, saddle - 0.04, 'metal', bevel=0.004)              # cross bar (across the pipe)
+    for y in (-0.034, 0.034):                                                        # U-bolt clamp (accent)
+        m.box(0.012, 0.012, 0.07, 0, y, saddle - 0.005, 'accent', bevel=0)
+        m.vcyl(0.01, 0.012, 0, y, saddle - 0.017, 'dark', seg=6)                     # nuts under the bar
+    m.box(0.012, 0.08, 0.012, 0, 0, saddle + 0.058, 'accent', bevel=0)
+    return m
+
+
 DUCT_W, DUCT_H, DUCT_Z = 0.6, 0.4, 2.8
 
 
@@ -1598,6 +1621,8 @@ MODELS = [
      'Overhead pipe turning 90° on one floor support, 1 m arms; joins pipe runs at a corner of a route.'),
     ('pipe-run-tee', 'Pipe tee', pipe_run_tee,
      'Overhead pipe tee with a branch valve on one floor support: a 2 m main line with a 1 m branch; joins a branch line to a header.'),
+    ('pipe-floor-support', 'Pipe support', pipe_floor_support,
+     'Floor-standing pipe support: a steel post on a base plate with a cross bar and U-bolt clamp holding one pipe at 2.6 m; placed every few meters under overhead pipelines. With the marker tool it snaps under a drawn pipeline and turns across it. Drawn as a small square or cross on the pipe route. Synonyms: pipe stand, pipe post, pipe rack post, pipe hanger.'),
     ('pipe-riser', 'Pipe riser', pipe_riser,
      'Vertical pipe drop from the overhead line to a valve and gauge near the floor; feeds a consumer such as a tool or a bench.'),
     ('scrubber-tower', 'Scrubber tower', scrubber_tower,

@@ -32,7 +32,7 @@ A floor plan is a plain, JSON-serializable object (`FloorPlan`, see `src/model/t
         {
           "id": "pipe_gas",
           "name": "Gas supply",
-          "medium": "natural-gas",
+          "medium": "NG",
           "diameter": 0.05,
           "color": "#facc15",
           "points": [{ "x": 1, "y": 1, "z": 0.5 }, { "x": 1, "y": 1, "z": 2.6 }, { "x": 12, "y": 1, "z": 2.6 }]
@@ -57,7 +57,7 @@ A floor plan is a plain, JSON-serializable object (`FloorPlan`, see `src/model/t
 | `Wall` | `id`, `start`, `end`, `thickness` | `height` | A straight segment. Door openings are gaps between segments. |
 | `Room` | `id`, `name`, `points` (≥ 3) | `color`, `data` | A simple polygon, not closed: the last point is not a repeat of the first. |
 | `Marker` | `id`, `name`, `position` | `kind`, `color`, `model`, `rotation`, `scale`, `elevation`, `data` | A point of interest such as a desk, exit or device. With `model` (a `ModelAsset` id) it is drawn as a 3D model, rotated `rotation`° clockwise, scaled by `scale` and raised `elevation` m above the floor (see [3D model assets](assets.md)). `pipelineId` marks a fitting (valve, regulator, meter) that sits on a pipeline. |
-| `Pipeline` | `id`, `name`, `points` (≥ 2), `diameter` | `medium`, `color`, `from`, `to`, `data` | A pipe route: an open 3D polyline. Each point has `x`, `y` and `z` (m above the level floor); consecutive points differ, and two points with the same `x`/`y` form a vertical riser. `diameter` is the outer diameter in m. `medium` is free text (e.g. `"natural-gas"`, `"N2"`) that the library never interprets. `from`/`to` are ids of the markers (equipment) the first and last point are attached to. |
+| `Pipeline` | `id`, `name`, `points` (≥ 2), `diameter` | `medium`, `color`, `from`, `to`, `data` | A pipe route: an open 3D polyline. Each point has `x`, `y` and `z` (m above the level floor); consecutive points differ, and two points with the same `x`/`y` form a vertical riser. `diameter` is the outer diameter in m. `medium` is free text (e.g. `"NG"`, `"N2"`) that the library never interprets; preset lists use the `PipeMedium` type (`{ id, name, color, diameter }`), e.g. `GAS_MEDIA` in `/gas` (see [assets](assets.md#pipe-media)). `from`/`to` are ids of the markers (equipment) the first and last point are attached to. |
 
 Tees and joints between pipelines are not stored: `pipelineJunctions(level)` derives them from the geometry (an end that meets another pipeline's end is a `joint`, an end that lands between its ends is a `tee`; both are checked in 3D, so pipes crossing at different heights don't connect).
 

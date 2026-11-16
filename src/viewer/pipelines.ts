@@ -3,12 +3,6 @@ import { pipelineJunctions, pipelineLength, pointAlongPipeline } from '../model/
 import type { Level, PipePoint, Pipeline } from '../model/types';
 import { toThreeColor } from './color';
 
-/** Horizontal runs at least this high (m above the floor) stand on floor supports. */
-export const SUPPORT_MIN_HEIGHT = 1.5;
-/** Distance between floor supports along a run, in meters. */
-export const SUPPORT_SPACING = 3;
-/** Support color: neutral steel, not the pipe color (tints and flows leave it alone). */
-const SUPPORT_COLOR = '#94a3b8';
 const RADIAL_SEGMENTS = 16;
 /**
  * Minimum pick radius (m). Real pipes are a few cm thick, a pixel or two on screen, so each segment
@@ -36,8 +30,8 @@ function world(p: PipePoint): THREE.Vector3 {
 
 /**
  * Build the pipelines of a level: a cylinder per segment, a sphere at each bend (a rounded elbow),
- * a larger sphere at tees and joints between pipelines, and floor supports under horizontal runs
- * from `SUPPORT_MIN_HEIGHT` up. Every mesh is pickable as `{ kind: 'pipeline' }`. Pure: no DOM.
+ * and a larger sphere at tees and joints between pipelines. Every mesh is pickable as
+ * `{ kind: 'pipeline' }`. Pure: no DOM.
  */
 export function buildPipelines(level: Level, defaultColor: string, pick: (mesh: THREE.Object3D, pipelineId: string) => void): Map<string, THREE.Group> {
   const groups = new Map<string, THREE.Group>();
@@ -91,23 +85,6 @@ export function buildPipelines(level: Level, defaultColor: string, pick: (mesh: 
       }
     });
 
-    // Per pipeline, so hovering one pipeline doesn't light up the supports of the others.
-    const supports = supportPositions(pipe);
-    const supportMaterial = supports.length
-      ? new THREE.MeshStandardMaterial({ color: toThreeColor(SUPPORT_COLOR), roughness: 0.7, metalness: 0.2 })
-      : null;
-    for (const support of supports) {
-      const height = support.z - r;
-      const post = new THREE.Mesh(new THREE.BoxGeometry(0.05, height, 0.05), supportMaterial!);
-      post.position.set(support.x, height / 2, support.y);
-      add(post);
-      // A short cross bar under the pipe, across the run.
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(Math.max(0.25, r * 5), 0.04, 0.05), supportMaterial!);
-      bar.position.set(support.x, height - 0.02, support.y);
-      bar.rotation.y = -support.angle + Math.PI / 2;
-      add(bar);
-    }
-
     groups.set(pipe.id, group);
   }
 
@@ -126,28 +103,6 @@ export function buildPipelines(level: Level, defaultColor: string, pick: (mesh: 
   }
 
   return groups;
-}
-
-/**
- * Floor support positions under a pipeline: along each horizontal segment at least
- * `SUPPORT_MIN_HEIGHT` up, one per `SUPPORT_SPACING` meters (at least one), evenly spread. `angle`
- * is the segment's direction in plan (radians, atan2 of plan y over x).
- */
-export function supportPositions(pipe: Pipeline): { x: number; y: number; z: number; angle: number }[] {
-  const out: { x: number; y: number; z: number; angle: number }[] = [];
-  for (let i = 1; i < pipe.points.length; i++) {
-    const a = pipe.points[i - 1]!;
-    const b = pipe.points[i]!;
-    const plan = Math.hypot(b.x - a.x, b.y - a.y);
-    if (plan < 1e-6 || Math.abs(b.z - a.z) > 1e-6 || a.z < SUPPORT_MIN_HEIGHT) continue;
-    const count = Math.max(1, Math.floor(plan / SUPPORT_SPACING));
-    const angle = Math.atan2(b.y - a.y, b.x - a.x);
-    for (let k = 0; k < count; k++) {
-      const t = (k + 0.5) / count;
-      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z, angle });
-    }
-  }
-  return out;
 }
 
 /** Distance between flow beads along a pipe (m) and their speed (m/s). */

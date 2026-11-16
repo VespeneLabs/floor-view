@@ -118,6 +118,16 @@ describe('pipe tool: drawing', () => {
     expect(editor.getPipeSettings().elevation).toBe(1.8);
   });
 
+  it('draws a pipeline that is only a vertical riser', () => {
+    const { editor, click, key, pipes } = setup();
+    editor.setTool('pipe');
+    click(2, 2);
+    key('PageDown', { shiftKey: true });
+    key('PageDown', { shiftKey: true }); // 2.6 → 0.6
+    key('Enter');
+    expect(pipes()[0]!.points).toEqual([pt(2, 2), pt(2, 2, 0.6)]);
+  });
+
   it('drops a riser when the elevation goes back to the height before it', () => {
     const { editor, click, key, pipes } = setup();
     editor.setTool('pipe');

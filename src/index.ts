@@ -20,4 +20,4 @@ export { toThreeColor } from './viewer/color';
 export { ALL_EDITOR_TOOLS, FloorplanEditor } from './editor/Editor';
 export type { EditorEvents, EditorOptions, EditorTool, MarkerTemplate, OverlayPoint, OverlayPointMove, PipeSettings } from './editor/Editor';
 
-export const VERSION = '0.6.0';
+export const VERSION = '0.7.0';
