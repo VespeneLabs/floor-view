@@ -48,6 +48,8 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `focus(target, { highlight? })` | Center the camera on a data point, room, wall, marker, pipeline or position, keeping the zoom; switches level if needed; draws a highlight. Returns false if the target doesn't exist (see [Focus](#focus)). |
 | `clearHighlight()` | Remove the focus highlight. |
 | `centerOn({ levelId, position }, { animate?, duration? })` | Pan so the plan position is in the middle of the view without changing the zoom (2D) or the camera's distance and angle (3D: the orbit target moves to the position on the level's floor). Switches level if needed. Eases over `duration` ms (default 300, ease-out); `animate: false` or `prefers-reduced-motion` jumps; camera input cancels it. Returns false for an unknown level. |
+| `planToClient(levelId, position, elevation?)` | Client coordinates `{ x, y, visible }` of a plan position, `elevation` meters above the level floor: the counterpart of `clientToPlan`, e.g. to open a popover. `visible` is false when the level is hidden or the position is behind the camera or outside the viewer; null for an unknown level. A snapshot: use `setOverlay` to keep an element attached. |
+| `setOverlay(overlay)` / `removeOverlay(id)` / `getOverlays()` | Keep a host HTML element attached to a plan position, marker or data point (see [Overlays](#overlays-host-html-on-the-plan)). |
 | `fitView()` | Frame the visible levels. The mouse wheel zooms toward the pointer (down to 30 cm from a surface in 3D). |
 | `screenshot()` | PNG data URL of the current view. |
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |
@@ -58,9 +60,11 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 ```ts
 viewer.on('click', ({ target, point, originalEvent }) => { ... });
 viewer.on('markermove', ({ id, levelId, position }) => editor.updateEntity({ kind: 'marker', id, levelId }, { position })); // movableMarkers only
+viewer.on('pointmove', ({ layerId, id, levelId, position }) => { ... });  // draggable points only: save it, then setLayer/updateLayer
 viewer.on('hover', ({ target }) => { ... });      // fires only when the hovered target changes
 viewer.on('modechange', (mode) => { ... });
 viewer.on('levelchange', (level) => { ... });
+viewer.on('render', () => { ... });               // a frame was drawn: screen positions may have changed
 ```
 
 - `target` is a `PickInfo` (`{ kind: 'wall' | 'room' | 'marker' | 'pipeline' | 'point', id, levelId, layerId? }`), or `null` for empty space.
@@ -96,8 +100,9 @@ viewer.setLayer({
   type: 'points',
   points: [{ id: 's1', levelId: 'level_ground', position: { x: 4, y: 9 }, color: '#ef4444', data: { temp: 24.1 } }],
   size: 0.2,        // sphere radius (m), per point via `size`
-  shape: 'sphere',  // 'sphere' | 'box' | 'cylinder' | 'cone' | 'diamond', per point via `shape`
-  elevation: 2.2,   // height above the level floor (m)
+  shape: 'sphere',  // 'sphere' | 'box' | 'cylinder' | 'cone' | 'diamond' | 'none', per point via `shape`
+  elevation: 2.2,   // height above the level floor (m), per point via `elevation`
+  draggable: false, // let the user drag the points (default false), per point via `draggable`
   tooltip: (p) => `${p.data?.temp} °C`,
   label: (p) => `${p.data?.temp} °C`, // persistent text above each point (optional)
   showLabels: true,                   // default true; toggle with updateLayer('sensors', { showLabels: false })
@@ -109,15 +114,42 @@ Points with an unknown `levelId` are skipped. Clicking a point gives `target.kin
 
 - **Labels.** `label(point)` returns plain text shown permanently above the point (null for none), e.g. a live reading. They are independent of the plan's room labels (`setShowLabels`) and styled by `.vl-viewer__point-label` (`--vl-point-label`, `--vl-point-label-bg`).
 - **Visibility.** `updateLayer(id, { visible: false })` hides the layer's points, labels, rings and beams without rebuilding anything (and stops its beams' animation frames); hidden points can't be hovered or clicked. Room names are toggled separately with `setShowLabels`, so a host can hide room names while keeping point labels, or the reverse.
-- **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`.
+- **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`. `'none'` (viewer only, not in `POINT_SHAPES`) draws no shape: the point's label, ring and beam still show at its position and height, e.g. a reading on top of a 3D model that already stands for the item. Such a point can't be hovered (no tooltip), clicked or dragged, since there is nothing to hit; `focus()` still finds it.
 - **Beam.** `beam: '#dc2626'` on a point adds an animated alert beam in that color: in 3D a translucent light column from the floor to the level's wall height (fading toward the top) plus a pulsing ground ring; in 2D an expanding, fading ring. While at least one beam is on a shown level the viewer renders every frame; with none it goes back to on-demand rendering. Under `prefers-reduced-motion: reduce` the column and ring are static (and the viewer stays on demand). `null`/omitted means no beam; removing the point or its beam frees it.
+- **Height.** `elevation` on a point (meters above the level floor) overrides the layer's `elevation` (default 1), so each point can sit at its real mounting height. The ring and label follow it; a beam still starts at the floor and reaches the wall height, or the top of the point when that is higher.
+- **Dragging.** With `draggable: true` on the layer (or on single points; a point's own `draggable` wins) the user can drag points in 2D and 3D, like markers with `movableMarkers`: the point moves live on the horizontal plane at its own height, snapped to `moveGrid` (default 0.25 m, Alt bypasses), with a "grab" cursor on hover. On drop the viewer emits `pointmove` with `{ layerId, id, levelId, position }`. It does not change the layer: save the position and call `setLayer`/`updateLayer`, otherwise the next update puts the point back. A press without movement is a normal `click`. A layer update during a drag (live values) keeps the dragged point under the pointer; the drag is cancelled if the update removes the point, moves it to another level or makes it undraggable. Dragging stays on the point's level and doesn't change its height.
 - **Ring.** `ring: '#dc2626'` on a point draws an outline ring around it in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
+
+### Overlays: host HTML on the plan
+
+For anything richer than a text label (an info card with a toggle, a chart, a menu) give the viewer your own element and an anchor; it keeps the element attached while the camera, the plan and the data change.
+
+```ts
+const card = document.createElement('div'); // render into it however you like (React portal, lit, plain DOM)
+viewer.setOverlay({
+  id: 'tank-1',
+  element: card,
+  anchor: { kind: 'marker', id: 'marker_tank1' },
+  // or { levelId, position: { x, y }, elevation?: 1.5 }   a plan position, meters above the level floor
+  // or { kind: 'point', layerId: 'sensors', id: 's1' }    a point of a points layer
+  align: { x: 0.5, y: 1 },   // which point of the element sits on the anchor; default bottom center (element above)
+  offset: { x: 0, y: -8 },   // extra screen offset in px (y down)
+  onVisibilityChange: (visible) => { ... },
+});
+viewer.removeOverlay('tank-1'); // detaches the element and hands it back
+```
+
+- **Anchors.** A marker anchor sits at the top of what the marker shows (its 3D model, the placeholder box while it loads, or the glyph), so with the default `align` the element stands above the model. It stays there with `setShowModels(false)`. A point anchor sits at the top of the point and follows its per-point `elevation`; with `shape: 'none'` that is still `size` above the point's position. Marker and point anchors follow their target live, also while the user drags it, and through `setPlan` and layer updates. An overlay whose marker, point or level doesn't exist is kept and appears when the target does.
+- **Visibility.** An overlay is hidden with its level, with its point layer (`visible: false`), while its anchor doesn't exist and when the anchor is behind the camera; `onVisibilityChange` reports each change and the initial state. Walls and models in front do **not** hide it, and an anchor outside the viewer just leaves the element clipped at the edge (check `getBoundingClientRect()` or `planToClient().visible` if you need to know). Overlays nearer to the camera are drawn on top of farther ones (the viewer sets the wrapper's `z-index` every frame).
+- **Pointer input.** Overlays take pointer events, unlike labels: buttons and links in them work, a click on an overlay does not fire the viewer's `click` for what is underneath, and a drag that starts on one does not orbit or pan. The mouse wheel over an overlay zooms the view as it does over the canvas, unless the element under the pointer scrolls itself (`overflow-y: auto/scroll` with overflowing content) or your own handler called `preventDefault()`.
+- **The element is yours.** The viewer wraps it in a positioned `div.vl-viewer__overlay` and never styles or reads the element itself; size and style it freely. Calling `setOverlay` again with the same `id` updates anchor, `align` and `offset` in place (and swaps the element if you pass another).
+- **Declutter.** The viewer doesn't resolve collisions between overlays. To do it yourself, listen to `render` (fired after each drawn frame; rendering is on demand, so it is quiet while nothing moves), measure your elements and restyle them. Don't call viewer methods from that handler unless something changed, since each call draws another frame.
 
 ### Live updates
 
 Call `setLayer` (or `updateLayer`) again with the same `id` whenever values change. For points and heatmaps this doesn't rebuild the scene:
 
-- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, color, size, shape, beam, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
+- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, elevation, color, size, shape, beam, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
 - **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
 
 ```ts

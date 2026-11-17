@@ -215,3 +215,94 @@ describe('focus', () => {
     expect(raycaster.intersectObject(mesh)).toEqual([]);
   });
 });
+
+describe('PointLayerView: per-point elevation and dragging', () => {
+  const parts = (view: PointLayerView) => {
+    const children = view.groups.get('level_ground')!.children;
+    return {
+      mesh: children.find((c) => c.userData.pick)!,
+      ring: children.find((c) => (c as THREE.Mesh).isMesh && !c.userData.pick && c.name !== 'point-beam')!,
+      label: children.find((c) => c.name === 'point-label')!,
+      beams: children.filter((c) => c.name === 'point-beam'),
+    };
+  };
+
+  it('uses the point elevation over the layer elevation, in place', () => {
+    const view = new PointLayerView('sensors');
+    view.sync(layer([sensor('a', 1), sensor('b', 2, { elevation: 2.4, ring: 'red' })], { elevation: 1.5, size: 0.2 }), LEVELS, '#f97316');
+    const [a, b] = meshes(view);
+    expect(a!.position.y).toBe(1.5); // layer default
+    expect(b!.position.y).toBe(2.4);
+    const { ring, label } = parts(view);
+    expect(ring.position.y).toBe(2.4);
+    expect(view.pointPosition('b')!.position.y).toBe(2.4); // what focus() highlights
+
+    view.sync(layer([sensor('a', 1, { elevation: 0 }), sensor('b', 2, { elevation: 0.5, ring: 'red' })], { elevation: 1.5, size: 0.2 }), LEVELS, '#f97316');
+    expect(meshes(view)[0]).toBe(a); // same objects
+    expect(a!.position.y).toBe(0); // 0 is a height, not "unset"
+    expect(b!.position.y).toBe(0.5);
+    expect(parts(view).ring.position.y).toBe(0.5);
+    expect(label.position.y).toBeCloseTo(0 + 0.2 * 1.25 + 0.05); // a's label follows its height
+
+    view.sync(layer([sensor('a', 1)]), LEVELS, '#f97316');
+    expect(a!.position.y).toBe(1); // back to the default
+  });
+
+  it('extends the beam up to a point above the wall height', () => {
+    const view = new PointLayerView('sensors');
+    const heights = new Map([['level_ground', 3]]);
+    view.sync(layer([sensor('a', 1, { beam: 'red', elevation: 2, size: 0.2 })]), LEVELS, '#f97316', heights);
+    const [column] = parts(view).beams;
+    expect(column!.scale.y).toBeCloseTo(2.98); // wall height, as without an elevation
+    view.sync(layer([sensor('a', 1, { beam: 'red', elevation: 5, size: 0.2 })]), LEVELS, '#f97316', heights);
+    expect(column!.scale.y).toBeCloseTo(5.18); // reaches the top of the point
+    expect(column!.position.y).toBeCloseTo(0.02); // still from the floor
+  });
+
+  it("draws no shape for 'none' but keeps the label, ring and beam; the point is unpickable", () => {
+    const view = new PointLayerView('sensors');
+    view.sync(layer([sensor('a', 7, { shape: 'none', ring: 'red', beam: 'red', elevation: 2 })], { size: 0.2 }), LEVELS, '#f97316');
+    const { mesh, ring, label, beams } = parts(view);
+    expect(mesh.visible).toBe(false); // the viewer picks visible objects only
+    expect([ring.visible, label.visible, beams.length]).toEqual([true, true, 2]);
+    expect(labels(view)).toEqual(['7 ppm']);
+    expect(label.position.y).toBeCloseTo(2 + 0.2 * 1.25 + 0.05);
+    expect(view.pointPosition('a')!.position.toArray()).toEqual([2, 2, 3]); // focus() still finds it
+
+    view.sync(layer([sensor('a', 7, { shape: 'cone' })]), LEVELS, '#f97316');
+    expect(mesh.visible).toBe(true);
+    expect((mesh as THREE.Mesh).geometry).toBeInstanceOf(THREE.ConeGeometry);
+
+    // Layer default 'none'; a point's own shape wins, an unknown one falls back to the layer's.
+    view.sync(layer([sensor('a', 7), sensor('b', 8, { shape: 'box' }), sensor('c', 9, { shape: 'bogus' as never })], { shape: 'none' }), LEVELS, '#f97316');
+    expect(meshes(view).map((m) => m.visible)).toEqual([false, true, false]);
+  });
+
+  it('is draggable per layer, overridden per point; off by default', () => {
+    const view = new PointLayerView('sensors');
+    view.sync(layer([sensor('a', 1), sensor('b', 2, { draggable: true })]), LEVELS, '#f97316');
+    expect([view.isDraggable('a'), view.isDraggable('b'), view.isDraggable('nope')]).toEqual([false, true, false]);
+    view.sync(layer([sensor('a', 1), sensor('b', 2, { draggable: false })], { draggable: true }), LEVELS, '#f97316');
+    expect([view.isDraggable('a'), view.isDraggable('b')]).toEqual([true, false]);
+  });
+
+  it('moves a point with its ring, label and beam, keeping heights; sync puts it back', () => {
+    const view = new PointLayerView('sensors');
+    const l = layer([sensor('a', 1, { ring: 'red', beam: 'red', elevation: 2 })], { size: 0.2 });
+    view.sync(l, LEVELS, '#f97316');
+    const { mesh, ring, label, beams } = parts(view);
+    const labelZ = label.position.z;
+    const heights = [mesh, ring, label, ...beams].map((o) => o.position.y);
+
+    expect(view.movePoint('a', 6, 7.5)).toBe(true);
+    expect(view.movePoint('nope', 0, 0)).toBe(false);
+    for (const o of [mesh, ring, ...beams]) expect([o.position.x, o.position.z]).toEqual([6, 7.5]);
+    expect(label.position.x).toBe(6);
+    expect(label.position.z).toBeCloseTo(labelZ + 4.5); // keeps its offset from the point
+    expect([mesh, ring, label, ...beams].map((o) => o.position.y)).toEqual(heights);
+    expect(view.pointPosition('a')!.position.toArray()).toEqual([6, 2, 7.5]);
+
+    view.sync(l, LEVELS, '#f97316'); // the layer is the source of truth
+    expect([mesh.position.x, mesh.position.z, label.position.z]).toEqual([2, 3, labelZ]);
+  });
+});
