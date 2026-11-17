@@ -61,11 +61,11 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 In 3D, full-height walls can hide what stands in a room. `setWallDisplay('low')` (or the `wallDisplay` option) draws every wall of every level as a stub instead, so the rooms still read:
 
 ```ts
-const viewer = new FloorplanViewer(el, { plan, wallDisplay: 'low', lowWallHeight: 0.3 });
+const viewer = new FloorplanViewer(el, { plan, wallDisplay: 'low', lowWallHeight: 0.5 });
 viewer.setWallDisplay('full'); // back to the real heights
 ```
 
-- **Height.** Walls are cut down to `lowWallHeight` meters (option, default 2.6), whatever `level.height` and `wall.height` say. A wall that is already lower keeps its height, so with the default only walls above 2.6 m change; set a small value such as 0.1-0.3 for an outline that hides nothing.
+- **Height.** Stubs are `lowWallHeight` meters high (option, default 0.3), whatever `level.height` and `wall.height` say. A wall that is already lower keeps its height.
 - **A display setting**, like `setShowModels`: it is applied in place (no scene rebuild), kept across `setPlan`, and leaves the camera and `getPlan()` alone. `fitView()` frames the plan as if the walls were full height, so the framing doesn't depend on it.
 - **Only walls change.** Models (also wall-mounted ones), pipelines, points and their alert beams, labels and overlays stay where they are; they read heights from the plan, not from the drawn walls.
 - **Picking.** Low walls are still `wall` targets for `click` / `hover`, and `focus({ kind: 'wall', id })` works as before. Because they are low, they no longer cover what is behind them, so those things can be picked and dragged.

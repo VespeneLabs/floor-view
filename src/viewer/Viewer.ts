@@ -45,7 +45,7 @@ export interface ViewerOptions {
   showModels?: boolean;
   /** Draw walls at their real height (`'full'`, default) or as low stubs (`'low'`) in 3D. See `setWallDisplay`. */
   wallDisplay?: WallDisplay;
-  /** Greatest height (m) of walls in the `'low'` wall display. Default 2.6. */
+  /** Greatest height (m) of walls in the `'low'` wall display. Default 0.3. */
   lowWallHeight?: number;
   /** Let the user drag markers (and their 3D models) across the floor. See `setMovableMarkers`. */
   movableMarkers?: boolean;
@@ -217,7 +217,7 @@ export class FloorplanViewer {
     this.assets = indexAssets(options.assets ?? []);
     this.showModels = options.showModels ?? true;
     this.wallDisplay = options.wallDisplay === 'low' ? 'low' : 'full';
-    this.lowWallHeight = Math.max(options.lowWallHeight ?? 2.6, 0.001);
+    this.lowWallHeight = Math.max(options.lowWallHeight ?? 0.3, 0.001);
     this.movableMarkers = options.movableMarkers ?? false;
     this.moveGrid = options.moveGrid ?? 0.25;
     this.pipeMinWidth = Math.max(0, options.pipeMinWidth ?? PIPE_MIN_PIXELS);
