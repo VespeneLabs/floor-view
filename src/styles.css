@@ -68,6 +68,11 @@
   white-space: nowrap;
 }
 
+/* Host overlays (viewer.setOverlay): interactive, unlike the labels around them. */
+.vl-viewer__overlay {
+  pointer-events: auto;
+}
+
 .vl-viewer__tooltip {
   position: absolute;
   top: 0;

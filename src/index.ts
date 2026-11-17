@@ -14,10 +14,11 @@ export { interpolateIDW } from './viewer/heatmap';
 export type { PickInfo, SceneColors } from './viewer/sceneBuilder';
 export type { FlowDirection } from './viewer/pipelines';
 export type { FocusOptions, FocusTarget } from './viewer/focus';
+export type { OverlayAnchor, ViewerOverlay } from './viewer/overlays';
 export { DEFAULT_SCENE_COLORS } from './viewer/sceneBuilder';
 export { toThreeColor } from './viewer/color';
 
 export { ALL_EDITOR_TOOLS, FloorplanEditor } from './editor/Editor';
 export type { EditorEvents, EditorOptions, EditorTool, MarkerTemplate, OverlayPoint, OverlayPointMove, PipeSettings } from './editor/Editor';
 
-export const VERSION = '0.8.0';
+export const VERSION = '0.9.0';

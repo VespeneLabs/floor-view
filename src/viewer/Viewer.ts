@@ -12,6 +12,7 @@ import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type Heatm
 import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
 import { applyModelStyle, ModelCache, type ModelStyle } from './models';
 import { PIPE_MIN_PIXELS, PipelineFlow, updatePipeWidths, type FlowDirection, type PipelineUserData } from './pipelines';
+import { OverlaySet, type OverlayAnchor, type OverlayPlace, type ViewerOverlay } from './overlays';
 import { PointLayerView } from './pointLayer';
 import {
   buildPlan,
@@ -98,6 +99,14 @@ export interface ViewerEvents {
   hover: PickEvent;
   modechange: ViewMode;
   levelchange: LevelSelection;
+  /**
+   * A frame was drawn, so things may have moved on screen (camera, resize, level, plan or layer
+   * change, a drag). Rendering is on demand, so this is quiet while nothing changes, but fires
+   * every frame while a beam or flow animates. For host work that depends on screen positions,
+   * e.g. decluttering overlays (`planToClient`, or measure your own elements). Changing the viewer
+   * from the handler draws another frame: only do it when something really changed.
+   */
+  render: void;
 }
 
 interface HeatmapLevel {
@@ -136,6 +145,8 @@ export class FloorplanViewer {
   private readonly colors: SceneColors;
   private readonly reducedMotion = reducedMotionQuery();
   private readonly models = new ModelCache();
+  // A wheel over an overlay zooms the view like one over the canvas (OrbitControls listens there).
+  private readonly overlays = new OverlaySet((event) => this.renderer.domElement.dispatchEvent(new WheelEvent('wheel', event)));
   private assets = new Map<string, ModelAsset>();
   private showModels: boolean;
   private movableMarkers: boolean;
@@ -341,6 +352,49 @@ export class FloorplanViewer {
     if (!lowest) return null;
     const p = this.floorPoint(lowest.group.position.y);
     return p ? { levelId: lowest.levelId, position: { x: p.x, y: p.z } } : null;
+  }
+
+  /**
+   * Client (viewport) coordinates of a plan position on a level, `elevation` meters above its
+   * floor: the counterpart of `clientToPlan`, e.g. to open a popover at a place. `visible` is false
+   * when the level is hidden or the position is behind the camera or outside the viewer. Null for
+   * an unknown level. It is a snapshot: to keep an element attached, use `setOverlay`.
+   */
+  planToClient(levelId: string, position: Point, elevation = 0): { x: number; y: number; visible: boolean } | null {
+    const built = this.built.find((b) => b.levelId === levelId);
+    if (!built) return null;
+    this.camera.updateMatrixWorld();
+    const v = new THREE.Vector3(position.x, built.group.position.y + elevation, position.y).project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return {
+      x: rect.left + ((v.x + 1) / 2) * rect.width,
+      y: rect.top + ((1 - v.y) / 2) * rect.height,
+      visible: built.group.visible && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && Math.abs(v.z) <= 1,
+    };
+  }
+
+  /**
+   * Keep a host element attached to a place in the plan: a position on a level, the top of a
+   * marker (its 3D model) or the top of a data point. Adds the overlay or replaces the one with
+   * the same id. The element is drawn over the view with pointer events on, follows the camera,
+   * its marker or point (also while dragged) and plan and layer updates, and is hidden with its
+   * level. Overlays stay until `removeOverlay`; one whose anchor doesn't exist is kept and shown
+   * when it appears. See `ViewerOverlay`.
+   */
+  setOverlay(overlay: ViewerOverlay): void {
+    this.overlays.set(overlay);
+    this.requestRender();
+  }
+
+  /** Remove an overlay and detach its element. Returns false when there is no overlay with that id. */
+  removeOverlay(id: string): boolean {
+    const removed = this.overlays.remove(id);
+    if (removed) this.requestRender();
+    return removed;
+  }
+
+  getOverlays(): ViewerOverlay[] {
+    return this.overlays.list();
   }
 
   /**
@@ -711,6 +765,7 @@ export class FloorplanViewer {
     this.setGhost(null);
     this.removeUnderlay();
     this.clearPlan();
+    this.overlays.dispose();
     this.models.dispose();
     this.renderer.dispose();
     this.events.clear();
@@ -854,9 +909,38 @@ export class FloorplanViewer {
   private render(): void {
     this.dirty = false;
     this.fitPipeWidths();
+    this.overlays.place(this.resolveOverlay);
     this.renderer.render(this.scene, this.camera);
     this.labelRenderer.render(this.scene, this.camera);
+    this.overlays.report();
+    this.events.emit('render', undefined);
   }
+
+  /** Where an overlay anchor is right now (level-local), or null while it doesn't exist or its layer is hidden. */
+  private resolveOverlay = (anchor: OverlayAnchor): OverlayPlace | null => {
+    if (!('kind' in anchor)) {
+      const built = this.built.find((b) => b.levelId === anchor.levelId);
+      return built ? { parent: built.group, position: new THREE.Vector3(anchor.position.x, anchor.elevation ?? 0, anchor.position.y) } : null;
+    }
+    if (anchor.kind === 'marker') {
+      for (const b of this.built) {
+        const object = b.markers.get(anchor.id);
+        if (!object) continue;
+        // Top of whatever the marker shows now: glyph, placeholder box or loaded model.
+        object.updateWorldMatrix(true, false);
+        const box = new THREE.Box3().setFromObject(object);
+        const top = box.isEmpty() ? object.position.y : box.max.y - b.group.position.y;
+        return { parent: b.group, position: new THREE.Vector3(object.position.x, top, object.position.z) };
+      }
+      return null;
+    }
+    const view = this.pointViews.get(anchor.layerId);
+    const at = view?.pointPosition(anchor.id);
+    const built = at && this.built.find((b) => b.levelId === at.levelId);
+    if (!view || !at || !built || view.groups.get(at.levelId)?.visible === false) return null;
+    at.position.y += at.radius;
+    return { parent: built.group, position: at.position };
+  };
 
   /** Thicken distant pipes (and their flow beads) to the minimum on-screen width. */
   private fitPipeWidths(): void {
@@ -1053,6 +1137,7 @@ export class FloorplanViewer {
     this.ghost?.mesh.removeFromParent();
     this.focusState?.mesh?.removeFromParent();
     this.endDrag(null, false);
+    this.overlays.detach(); // host elements outlive plan rebuilds; the next render re-attaches them
     for (const id of new Set([...this.pointViews.keys(), ...this.heatmaps.keys()])) this.removeLayerObjects(id);
     for (const b of this.built) {
       disposeObject(b.group);
