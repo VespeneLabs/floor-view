@@ -35,8 +35,11 @@ import {
   pipelineJunctions,
   segmentRotation,
   syncPipelineLinks,
+  type PipeMedium,
 } from '../model/pipeline';
+import { applyPlanCommands, type PlanCommandResult } from '../model/commands';
 import { routePipeline } from '../model/routing';
+import { parseEntity } from '../model/validate';
 import type { Entity, EntityRef, FloorPlan, Level, Marker, PipePoint, Pipeline, Point, Room, Underlay, Wall } from '../model/types';
 import { orthoPoint, snapToWallFace } from './pipes';
 import { pointsAttr, svg } from './svg';
@@ -102,6 +105,19 @@ export interface OverlayPointMove {
   position: Point;
 }
 
+/**
+ * `entitydragout`: with `dragOut` on, a drag that started on an entity or overlay point left the
+ * editor. The editor has cancelled its own drag (nothing moved, no `change`); the pointer is still
+ * down and the gesture is the host's from here, e.g. to drop a reference onto its own element.
+ */
+export interface EditorDragOutEvent {
+  /** What the drag started on; `kind: 'point'` is an overlay point. */
+  ref: { kind: EntityRef['kind'] | 'point'; id: string; levelId: string };
+  clientX: number;
+  clientY: number;
+  originalEvent: PointerEvent;
+}
+
 export interface EditorOptions {
   plan?: FloorPlan;
   /** Initially active level id (default: first level). */
@@ -120,6 +136,11 @@ export interface EditorOptions {
   tools?: EditorTool[];
   /** Read-only: the user can select, pan and zoom but not change the plan. Default false. */
   readOnly?: boolean;
+  /**
+   * Let the user drag entities and overlay points out of the editor: leaving it cancels the drag
+   * and emits `entitydragout`. Default false. See `setDragOut`.
+   */
+  dragOut?: boolean;
   /** Host-managed points drawn on top (see `setOverlayPoints`). */
   overlayPoints?: OverlayPoint[];
   /** 3D models that markers can show; the editor draws their footprints. See `setAssets`. */
@@ -139,6 +160,8 @@ export interface EditorEvents {
   overlaypointmove: OverlayPointMove;
   /** The selected overlay point changed (null: none). Independent of `selectionchange`. */
   overlaypointselect: string | null;
+  /** A drag that started on an entity or overlay point left the editor (only with `dragOut`). */
+  entitydragout: EditorDragOutEvent;
   /** The marker template changed (`setMarkerTemplate`, Q/E while placing, Escape). */
   templatechange: MarkerTemplate | null;
   /** The pipe settings changed (`setPipeSettings`, or the elevation keys in the pipe tool). */
@@ -230,6 +253,9 @@ export class FloorplanEditor {
   private pipe: PipeSettings;
   private tools: EditorTool[];
   private readOnly: boolean;
+  private dragOut: boolean;
+  /** What the current press started on (select tool), for `entitydragout`. */
+  private pressed: EditorDragOutEvent['ref'] | null = null;
   private overlayPoints: OverlayPoint[] = [];
   private overlaySelection: string | null = null;
   private assets = new Map<string, ModelAsset>();
@@ -242,6 +268,7 @@ export class FloorplanEditor {
     this.levelId = options.levelId ?? this.plan.levels[0]!.id;
     this.tools = sanitizeTools(options.tools);
     this.readOnly = options.readOnly ?? false;
+    this.dragOut = options.dragOut ?? false;
     this.overlayPoints = structuredClone(options.overlayPoints ?? []);
     this.tool = this.allowedTool(options.tool ?? 'select');
     this.grid = options.grid ?? 0.25;
@@ -597,12 +624,70 @@ export class FloorplanEditor {
     if (!same) this.events.emit('selectionchange', this.getSelection());
   }
 
-  /** Merge `patch` into an entity (the `id` cannot be changed). */
-  updateEntity(ref: EntityRef, patch: EntityPatch): void {
+  /**
+   * Merge `patch` into an entity (the `id` cannot be changed), as one undoable step. A patch that
+   * would make the entity invalid in the plan format (e.g. a wall thickness of 0, a room with two
+   * points, a non-numeric rotation) is refused. Returns false when nothing was changed: unknown
+   * entity or refused patch.
+   */
+  updateEntity(ref: EntityRef, patch: EntityPatch): boolean {
     const entity = findEntity(this.plan, ref);
-    if (!entity) return;
+    if (!entity) return false;
     const { id: _ignored, ...rest } = patch as EntityPatch & { id?: string };
+    try {
+      parseEntity(ref.kind, { ...entity, ...rest });
+    } catch {
+      return false;
+    }
     this.mutate(() => Object.assign(entity, structuredClone(rest)));
+    return true;
+  }
+
+  /**
+   * Drag-out: when on, a drag in the select tool that started on a wall, room, marker, pipeline or
+   * overlay point and leaves the editor is cancelled (the entity goes back, nothing is committed,
+   * also in read-only mode where nothing moves anyway) and `entitydragout` fires once. The host
+   * continues the gesture with its own pointer listeners, e.g. to drop a reference to the entity
+   * on a chat box; nothing resumes in the editor when the pointer comes back. Dragging a vertex
+   * handle is not affected. Off by default: a drag past the edge then keeps moving the entity.
+   */
+  setDragOut(enabled: boolean): void {
+    this.dragOut = enabled;
+  }
+
+  getDragOut(): boolean {
+    return this.dragOut;
+  }
+
+  /**
+   * Remove an entity, as one undoable step (links to it are cleared, see the model's
+   * `removeEntity`). Returns false for an unknown entity and in read-only mode.
+   */
+  removeEntity(ref: EntityRef): boolean {
+    if (this.readOnly || !findEntity(this.plan, ref)) return false;
+    this.mutate(() => removeEntity(this.plan, ref));
+    if (this.selection?.id === ref.id && this.selection.kind === ref.kind) this.select(null);
+    return true;
+  }
+
+  /**
+   * Validate and apply a list of plan commands (`applyPlanCommands`, e.g. an assistant's tool
+   * calls) as **one** undoable step. All or nothing: on any invalid command the plan stays as it
+   * is and the errors are returned. The view, the active level and the selection are kept (unless
+   * a command removed them). The editor's assets are the model catalog; pass `media` for pipe
+   * medium presets. The returned plan is a copy.
+   */
+  applyCommands(commands: readonly unknown[], options: { media?: readonly PipeMedium[] } = {}): PlanCommandResult {
+    if (this.readOnly) return { ok: false, errors: [{ index: -1, message: 'The editor is read-only.' }] };
+    const result = applyPlanCommands(this.plan, commands, {
+      ...(this.assets.size ? { assets: this.assets } : {}),
+      ...(options.media ? { media: options.media } : {}),
+    });
+    if (!result.ok || commands.length === 0) return result.ok ? { ...result, plan: this.getPlan() } : result;
+    this.drag = null;
+    this.history.push(this.plan);
+    this.restore(result.plan);
+    return { ...result, plan: this.getPlan() };
   }
 
   deleteSelection(): void {
@@ -1015,6 +1100,7 @@ export class FloorplanEditor {
   private onPointerDown = (event: PointerEvent): void => {
     this.element.focus({ preventScroll: true });
     if (event.button === 2) return; // handled by contextmenu
+    this.pressed = null;
     this.svgEl.setPointerCapture(event.pointerId);
     const raw = this.toWorld(event);
 
@@ -1028,6 +1114,7 @@ export class FloorplanEditor {
         const overlay = this.overlayHit(raw);
         if (overlay) {
           this.selectOverlayPoint(overlay.id);
+          this.pressed = { kind: 'point', id: overlay.id, levelId: overlay.levelId };
           if (overlay.draggable ?? true) this.drag = { type: 'overlay', id: overlay.id, start: raw, original: { ...overlay.position }, moved: false };
           return;
         }
@@ -1039,6 +1126,7 @@ export class FloorplanEditor {
           return;
         }
         const entity = findEntity(this.plan, hit.ref)!;
+        if (hit.handle === undefined) this.pressed = { ...hit.ref };
         if (this.readOnly) {
           this.select(hit.ref); // inspect only
           return;
@@ -1250,6 +1338,10 @@ export class FloorplanEditor {
   }
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (this.dragOut && this.pressed && this.isOutside(event)) {
+      this.leaveDrag(event);
+      return;
+    }
     const raw = this.toWorld(event);
     const drag = this.drag;
 
@@ -1372,7 +1464,31 @@ export class FloorplanEditor {
     this.alignFittings(level, pipe);
   }
 
+  private isOutside(event: { clientX: number; clientY: number }): boolean {
+    const rect = this.svgEl.getBoundingClientRect();
+    return event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom;
+  }
+
+  /** Drag-out: undo what the drag did so far, let go of the pointer and hand the gesture to the host. */
+  private leaveDrag(event: PointerEvent): void {
+    const ref = this.pressed!;
+    const drag = this.drag;
+    this.pressed = null;
+    this.drag = null;
+    if ((drag?.type === 'move' || drag?.type === 'segment') && drag.moved) {
+      this.plan = drag.before;
+    } else if (drag?.type === 'overlay') {
+      const point = this.overlayPoints.find((p) => p.id === drag.id);
+      if (point) point.position = { ...drag.original };
+    }
+    if (this.svgEl.hasPointerCapture(event.pointerId)) this.svgEl.releasePointerCapture(event.pointerId);
+    this.cursor = null;
+    this.render();
+    this.events.emit('entitydragout', { ref, clientX: event.clientX, clientY: event.clientY, originalEvent: event });
+  }
+
   private onPointerUp = (event: PointerEvent): void => {
+    this.pressed = null;
     if (this.svgEl.hasPointerCapture(event.pointerId)) this.svgEl.releasePointerCapture(event.pointerId);
     const drag = this.drag;
     this.drag = null;

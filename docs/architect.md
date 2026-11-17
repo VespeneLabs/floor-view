@@ -95,6 +95,27 @@ Every request spends model credit: put the endpoint behind your own authenticati
 - **`createAnthropicArchitectModel({ client?, apiKey?, model?, maxTokens?, effort?, fallbacks?, onError? })`** runs on Claude through `@anthropic-ai/sdk`, an optional peer dependency that is loaded on first use. Pass an existing `client` to reuse its configuration. Defaults: `claude-opus-5-5`, `max_tokens` 64000, adaptive thinking with summarized display, effort `high`, prompt caching (a breakpoint on the last system block plus automatic caching of the conversation), eager tool-input streaming for the plan, and `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`; set `fallbacks: false` off the Claude API).
 - **`createMockArchitectModel({ latency? })`** is a scripted assistant for demos, host tests and e2e runs: it asks two questions, proposes a generic factory sized to the image (read from "W × H px" in the first message) and summarizes. When the request's catalog contains the Kenney ids it uses (`kenney/factory/machine`, `kenney/factory/conveyor-long`, `kenney/shop/shelf-boxes`, `kenney/furniture/desk`…), the factory is furnished with machines, conveyors, racks and furniture. `latency: 0` removes the delays.
 
+## Your own agent
+
+The model adapter and the stream helpers do not depend on the architect's prompt, tools or scans, so a host can use them for another agent, e.g. an assistant that edits a plan with [plan commands](commands.md). This is a supported use.
+
+```ts
+// Server: one model turn with your own system prompt and tools.
+const model = createAnthropicArchitectModel({ apiKey, model: 'claude-sonnet-5-5', maxTokens: 16000, effort: 'medium' });
+for await (const event of model.streamTurn({ system: [AGENT_PROMPT, hostRules], tools, messages, assets: [], media: [] }, { signal, onUsage })) {
+  res.write(`${JSON.stringify(event)}\n`);
+}
+
+// Browser: read the same event stream.
+for await (const event of readNdjson(response.body)) { ... }
+```
+
+- `system` is a list of text parts; the Anthropic adapter puts a cache breakpoint on the last one, so keep the parts and the tools stable. `tools` are `{ name, description, input_schema, streamInput? }`. `assets` and `media` are for adapters that want them; the Anthropic adapter ignores them, pass `[]`.
+- The stream is `text`, `thinking` and `tool_progress` events and then exactly one `done` (the complete assistant content: append it to the conversation unchanged, thinking blocks included) or `error` (a message for the user and `retryable`). Aborting `signal` ends it without an event.
+- `ArchitectModel`, the event and message types, `ArchitectToolDefinition`, `readNdjson`, `createFetchTransport` and `ArchitectTransportError` are the stable parts. `createFetchTransport` posts any request object as JSON.
+- `runArchitectTurn`, `parseArchitectRequest` and the middleware are the architect's: they always use its prompt, tools and limits. Your endpoint validates its own requests and calls `streamTurn` itself. The adapter's defaults (model, 64000 max tokens, effort `high`) are chosen for the architect; set your own.
+- `ArchitectController` is tied to scans and proposals; an editing agent runs its own tool loop.
+
 ## 3D models
 
 When the drawing shows objects (machines, conveyors, racks, furniture, sanitary fittings, vehicles, tanks), the assistant can place them as 3D models: markers with `model`, `rotation` and `scale` (see [assets.md](assets.md)). The host decides which models are available.

@@ -106,6 +106,8 @@ The subpath is a separate bundle, so a `PlanValidationError` thrown by it is not
 - Pipelines (`src/model/pipeline.ts`): `pipelineLength` (3D, risers included), `pipeDistance`, `isRiser`, `nearestPointOnPipeline` (plan-view projection with interpolated `z`, segment index and `t`), `segmentRotation` (clockwise degrees that line a model's x axis up with a segment, for fittings), `pipelineJunctions`, `movePipelineEnd` (moves an end with its riser and keeps an orthogonal end segment orthogonal; `syncPipelineLinks` uses it for ends attached to markers)
 - Routing (`src/model/routing.ts`): `routePipeline(level, from, to, { elevation?, diameter?, grid?, turnCost?, wallCost? })` returns an orthogonal route as pipeline points at one height, or `null` when both positions are the same. It is an A* search on the grid (coarser for long routes) that prefers few bends (`turnCost`, default 1.5 m of pipe per bend) and runs beside walls, stays out of wall bodies and passes through a wall only when going around costs more than `wallCost` (default 4 m). Only walls are obstacles; equipment and other pipelines are not
 
+- Editing and describing: `applyPlanCommands`, `PLAN_COMMAND_DEFINITIONS`, `describePlan` (see [Plan commands](commands.md)); `parseEntity(kind, value)` validates one wall, room, marker or pipeline with the rules of `parsePlan`
+
 `removeEntity` also clears links to the removed entity: removing a marker detaches the pipeline ends attached to it, and removing a pipeline clears `pipelineId` on its fittings.
 
 ## Versioning
