@@ -76,7 +76,10 @@ editor.on('pipesettingschange', (settings) => toolbar.update(settings)); // also
 | `addLevel(name?)` / `removeLevel(id)` / `updateLevel(id, patch)` | Manage levels. The last level can't be removed. |
 | `setPlanName(name)` | Rename the plan. |
 | `getSelection()` / `getSelectedEntity()` / `select(ref \| null)` | Selection, as an `EntityRef` `{ kind, id, levelId }`. |
-| `updateEntity(ref, patch)` | Merge properties into a wall, room, marker or pipeline (not its `id`). Pipe ends and fittings follow (see "Pipelines"). |
+| `updateEntity(ref, patch)` | Merge properties into a wall, room, marker or pipeline (not its `id`). Pipe ends and fittings follow (see "Pipelines"). A patch that would make the entity invalid in the plan format (thickness 0, a room with 2 points, a non-numeric rotation) is refused. Returns false when nothing changed. |
+| `removeEntity(ref)` | Remove an entity as one undo step; links to it are cleared and it is deselected. Returns false for an unknown entity or in read-only mode. |
+| `applyCommands(commands, { media? })` | Validate and apply a list of [plan commands](commands.md) as **one** undo step, all or nothing. Returns `{ ok: true, plan, created }` or `{ ok: false, errors }`. The view, the active level and the selection stay (unless a command removed them). The editor's assets are the model catalog. Refused in read-only mode. |
+| `setDragOut(bool)` / `getDragOut()` | Let the user drag entities out of the editor as references (also the `dragOut` option). See [Drag-out](#drag-out). |
 | `connectMarkers(fromId, toId, levelId?)` | Add a pipeline between two markers, routed automatically at the pipe settings' elevation; one undo step, selected. Returns a copy, or `null`. |
 | `reroutePipeline(ref)` | Route a pipeline again between its ends (at its greatest height, keeping end risers and links); one undo step. Returns `false` when there is nothing to route. |
 | `getPipeSettings()` / `setPipeSettings(patch)` | Settings for new pipelines: `elevation`, `diameter`, `medium`, `color`, `name`. Pass `undefined` to clear `medium`, `color` or `name`. |
@@ -108,6 +111,7 @@ editor.on('levelchange', (levelId) => ...);
 editor.on('historychange', ({ canUndo, canRedo }) => ...);
 editor.on('overlaypointselect', (id) => ...);                         // overlay point selected (or null)
 editor.on('overlaypointmove', ({ id, levelId, position }) => ...);    // overlay point dropped after a drag
+editor.on('entitydragout', ({ ref, clientX, clientY }) => ...);       // dragOut only: a drag left the editor
 editor.on('templatechange', (template) => ...);                      // marker template set, rotated or cleared
 editor.on('pipesettingschange', (settings) => ...);                  // pipe settings changed (API or elevation keys)
 ```
@@ -141,6 +145,35 @@ editor.element.addEventListener('drop', (e) => {
 - `shape` picks the glyph, the same as the viewer's 2D point glyphs (`POINT_GLYPHS`): `'sphere'` → circle (default), `'box'` → square, `'cylinder'` → hexagon, `'cone'` → triangle, `'diamond'` → diamond. `ring: '#dc2626'` draws an outline ring around the point (e.g. alert state), like the viewer's `ring`. Glyphs are styled by `.vl-editor__overlay-glyph`, rings by `.vl-editor__overlay-ring`.
 - With the `select` tool (also in read-only mode), clicking a point selects it (`overlaypointselect`) and dragging moves it, snapped like markers (hold `Alt` to bypass). The editor emits one `overlaypointmove` on drop and keeps showing the dropped position until you call `setOverlayPoints` again. `draggable: false` makes a point selectable only.
 - `setOverlayPoints` replaces all points; calling it during a drag keeps the dragged point under the pointer.
+
+## Drag-out
+
+With `dragOut: true` (or `setDragOut(true)`), the user can drag an entity out of the editor to refer to it somewhere else, e.g. drop a marker on a chat box instead of typing its name.
+
+```ts
+const editor = new FloorplanEditor(el, { plan, dragOut: true });
+
+editor.on('entitydragout', ({ ref, clientX, clientY }) => {
+  // ref: { kind: 'wall' | 'room' | 'marker' | 'pipeline' | 'point', id, levelId }; 'point' is an overlay point
+  const chip = showChip(ref, clientX, clientY);
+  const move = (e: PointerEvent) => chip.moveTo(e.clientX, e.clientY);
+  const up = (e: PointerEvent) => {
+    window.removeEventListener('pointermove', move);
+    chip.remove();
+    if (chatBox.contains(document.elementFromPoint(e.clientX, e.clientY))) addReference(ref);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up, { once: true });
+});
+```
+
+- The event fires once, when a drag in the `select` tool that started on a wall, room, marker, pipeline or overlay point leaves the editor's area. It also works in read-only mode and for overlay points with `draggable: false`, where nothing moves.
+- The editor cancels its own drag: the entity (or overlay point) goes back to where it was, nothing is committed, and there is no `change`, undo step or `overlaypointmove`. It releases the pointer, so the rest of the gesture reaches the page.
+- The pointer is still down: the gesture is the host's from here. Nothing resumes in the editor if the pointer comes back over it.
+- Dragging a vertex handle is not a drag-out. A press on empty space pans as usual.
+- With drag-out on, an entity can no longer be moved far away by dragging it past the edge of the editor; pan or zoom out first. It is off by default.
+
+The viewer has the same option and event ([Viewer](viewer.md#drag-out)).
 
 ## Styling
 

@@ -31,6 +31,7 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `getPlan()` | A copy of the shown plan, or `null`. |
 | `setMode('2d' \| '3d')` / `getMode()` | Switch cameras and refit. In 2D with `level: 'all'`, only the lowest level is shown. |
 | `setLevel(id \| 'all')` / `getLevel()` | Choose which levels are visible. |
+| `setDragOut(boolean)` / `getDragOut()` | Let the user drag entities and data points out of the viewer as references (also the `dragOut` option). See [Drag-out](#drag-out). |
 | `setShowLabels(boolean)` | Toggle the plan's labels, which are the room names. Point layer labels are separate (`showLabels` on the layer). |
 | `setUnderlay({ url, x, y, width, height, opacity? } \| null, levelId?)` | Show a reference image on a level's floor, under the rooms (default: first level). Kept across `setPlan`. |
 | `setMovableMarkers(boolean)` | Let the user drag markers and their 3D models across the floor (also the `movableMarkers` option; snaps to `moveGrid`, default 0.25 m, Alt bypasses). The viewer moves the marker live and emits `markermove` on drop; update your plan (e.g. `editor.updateEntity`) and `setPlan`. A press without movement is a normal `click`. |
@@ -79,6 +80,7 @@ The plan format has no doors, windows or other openings, so walls are solid boxe
 viewer.on('click', ({ target, point, originalEvent }) => { ... });
 viewer.on('markermove', ({ id, levelId, position }) => editor.updateEntity({ kind: 'marker', id, levelId }, { position })); // movableMarkers only
 viewer.on('pointmove', ({ layerId, id, levelId, position }) => { ... });  // draggable points only: save it, then setLayer/updateLayer
+viewer.on('entitydragout', ({ ref, clientX, clientY }) => { ... });      // dragOut only: a drag left the viewer
 viewer.on('hover', ({ target }) => { ... });      // fires only when the hovered target changes
 viewer.on('modechange', (mode) => { ... });
 viewer.on('levelchange', (level) => { ... });
@@ -88,6 +90,14 @@ viewer.on('render', () => { ... });               // a frame was drawn: screen p
 - `target` is a `PickInfo` (`{ kind: 'wall' | 'room' | 'marker' | 'pipeline' | 'point', id, levelId, layerId? }`), or `null` for empty space.
 - `point` is the pointer position in **plan coordinates** (meters), or `null` if the ray missed the floor.
 - A pointer that moves more than 4 px between down and up counts as a camera drag, not a click.
+
+## Drag-out
+
+With `dragOut: true` (or `setDragOut(true)`), a drag that starts on a room, wall, marker, pipeline or data point and leaves the viewer emits `entitydragout` once, with `ref` (a `PickInfo`, with `layerId` for a data point), `clientX`, `clientY` and `originalEvent`. The host can then let the user drop a reference to it on its own element; see the [editor's drag-out](editor.md#drag-out) for a handler, which is the same here.
+
+- The viewer cancels what the drag did: a marker or point being moved goes back without `markermove` / `pointmove`, and a camera orbit or pan that began on the entity is undone.
+- The pointer is still down and the gesture is the host's. Nothing resumes in the viewer if the pointer comes back, and the release is not a `click`.
+- A drag that starts on empty space moves the camera as usual. Off by default.
 
 ## Data layers
 
