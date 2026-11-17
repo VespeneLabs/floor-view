@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-import { POINT_GLYPHS, pointShape, type PointShape } from '../core/shapes';
+import { POINT_GLYPHS, POINT_SHAPES, pointShape, type PointShape } from '../core/shapes';
 import { toThreeColor } from './color';
 import type { PointDatum, PointLayer } from './layers';
 import type { PickInfo } from './sceneBuilder';
@@ -9,6 +9,7 @@ import type { PickInfo } from './sceneBuilder';
 interface PointItem {
   levelId: string;
   shape: PointShape;
+  draggable: boolean;
   mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   ring: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial> | null;
   label: CSS2DObject | null;
@@ -123,6 +124,30 @@ export class PointLayerView {
     return item ? { levelId: item.levelId, position: item.mesh.position.clone(), radius: item.mesh.scale.x } : null;
   }
 
+  /** Whether the user may drag a point (`draggable` of the point, else of the layer). */
+  isDraggable(id: string): boolean {
+    return this.items.get(id)?.draggable ?? false;
+  }
+
+  /**
+   * Move a point with its ring, label and beam to level-local `x`/`z`, keeping its height, e.g.
+   * while it is dragged. The next `sync` puts it back where the layer says. False if there is no such point.
+   */
+  movePoint(id: string, x: number, z: number): boolean {
+    const item = this.items.get(id);
+    if (!item) return false;
+    const dx = x - item.mesh.position.x;
+    const dz = z - item.mesh.position.z;
+    for (const object of [item.ring, item.label, item.beam?.column, item.beam?.pulse]) {
+      if (!object) continue;
+      object.position.x += dx;
+      object.position.z += dz;
+    }
+    item.mesh.position.x = x;
+    item.mesh.position.z = z;
+    return true;
+  }
+
   /** Show solids (3D) or flat glyphs (2D). Swaps geometries in place. */
   setMode(mode: '2d' | '3d'): void {
     if (mode === this.mode) return;
@@ -197,11 +222,13 @@ export class PointLayerView {
   }
 
   private syncPoint(layer: PointLayer, point: PointDatum, defaultColor: string, beamHeight: number): void {
-    const shape = pointShape(point.shape, pointShape(layer.shape));
+    // 'none' keeps a (hidden, so unpickable) mesh: the label, ring and beam hang off its position.
+    const wanted = point.shape === 'none' || POINT_SHAPES.includes(point.shape as PointShape) ? point.shape : layer.shape;
+    const shape = pointShape(wanted);
     let item = this.items.get(point.id);
     if (!item) {
       const mesh = new THREE.Mesh(this.geometry(shape), new THREE.MeshStandardMaterial({ roughness: 0.4 }));
-      item = { levelId: point.levelId, shape, mesh, ring: null, label: null, beam: null };
+      item = { levelId: point.levelId, shape, draggable: false, mesh, ring: null, label: null, beam: null };
       this.items.set(point.id, item);
       this.group(point.levelId).add(mesh);
     } else if (item.levelId !== point.levelId) {
@@ -217,10 +244,12 @@ export class PointLayerView {
       item.mesh.geometry = this.geometry(shape);
     }
     const size = point.size ?? layer.size ?? DEFAULT_SIZE;
-    const y = layer.elevation ?? DEFAULT_ELEVATION;
+    const y = point.elevation ?? layer.elevation ?? DEFAULT_ELEVATION;
     const { mesh } = item;
+    item.draggable = point.draggable ?? layer.draggable ?? false;
     toThreeColor(point.color ?? layer.color ?? defaultColor, mesh.material.color);
     mesh.scale.setScalar(size);
+    mesh.visible = wanted !== 'none';
     mesh.position.set(point.position.x, y, point.position.y);
     const pick: PickInfo = { kind: 'point', id: point.id, levelId: point.levelId, layerId: layer.id };
     mesh.userData.pick = pick;
@@ -252,7 +281,8 @@ export class PointLayerView {
       pulse.material.color.copy(column.material.color);
       item.beam.radius = size;
       column.position.set(point.position.x, 0.02, point.position.y);
-      column.scale.set(size * 0.85, Math.max(beamHeight - 0.02, 0.5), size * 0.85);
+      // Up to the level's wall height, or to the point itself when it sits higher.
+      column.scale.set(size * 0.85, Math.max(beamHeight - 0.02, y + size - 0.02, 0.5), size * 0.85);
       pulse.position.set(point.position.x, 0.07, point.position.y);
       poseBeam(item.beam, null);
     } else if (item.beam) {

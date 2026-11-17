@@ -23,8 +23,11 @@ export interface PointDatum {
   color?: string;
   /** Point "radius" in meters (the sphere radius; other shapes are about as big). */
   size?: number;
-  /** Overrides the layer's `shape`. */
-  shape?: PointShape;
+  /**
+   * Overrides the layer's `shape`. `'none'` draws no solid or glyph: the label, ring and beam
+   * still show at the point's position and height, but the point can't be hovered, clicked or dragged.
+   */
+  shape?: PointShape | 'none';
   /** Outline ring color around the point, e.g. for alert state independent of the fill color. Null/undefined: no ring. */
   ring?: string | null;
   /**
@@ -33,6 +36,10 @@ export interface PointDatum {
    * `prefers-reduced-motion`. Null/undefined: no beam.
    */
   beam?: string | null;
+  /** Height above the level floor in meters. Overrides the layer's `elevation`. */
+  elevation?: number;
+  /** Whether the user can drag this point in the viewer. Overrides the layer's `draggable`. */
+  draggable?: boolean;
   data?: Record<string, unknown>;
 }
 
@@ -50,10 +57,17 @@ export interface PointLayer {
   color?: string;
   /** Default radius in meters. Default 0.25. */
   size?: number;
-  /** Default shape for points without their own. Default 'sphere'. */
-  shape?: PointShape;
-  /** Height above the level floor in meters. Default 1. */
+  /** Default shape for points without their own; `'none'` draws no shape (see `PointDatum.shape`). Default 'sphere'. */
+  shape?: PointShape | 'none';
+  /** Default height above the level floor in meters, for points without their own. Default 1. */
   elevation?: number;
+  /**
+   * Let the user drag the layer's points across the plan, at their own height (snapped to the
+   * viewer's `moveGrid`; Alt bypasses it). Per point via `draggable`. The viewer moves the point
+   * live and emits `pointmove` on drop; it does not change the layer, so update your data and call
+   * `setLayer`/`updateLayer`. A press without movement is a normal `click`. Default false.
+   */
+  draggable?: boolean;
   tooltip?: (point: PointDatum) => string | null | undefined;
   /**
    * Persistent text label above each point (plain text), e.g. a live reading. Return null or

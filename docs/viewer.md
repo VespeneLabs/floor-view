@@ -58,6 +58,7 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 ```ts
 viewer.on('click', ({ target, point, originalEvent }) => { ... });
 viewer.on('markermove', ({ id, levelId, position }) => editor.updateEntity({ kind: 'marker', id, levelId }, { position })); // movableMarkers only
+viewer.on('pointmove', ({ layerId, id, levelId, position }) => { ... });  // draggable points only: save it, then setLayer/updateLayer
 viewer.on('hover', ({ target }) => { ... });      // fires only when the hovered target changes
 viewer.on('modechange', (mode) => { ... });
 viewer.on('levelchange', (level) => { ... });
@@ -96,8 +97,9 @@ viewer.setLayer({
   type: 'points',
   points: [{ id: 's1', levelId: 'level_ground', position: { x: 4, y: 9 }, color: '#ef4444', data: { temp: 24.1 } }],
   size: 0.2,        // sphere radius (m), per point via `size`
-  shape: 'sphere',  // 'sphere' | 'box' | 'cylinder' | 'cone' | 'diamond', per point via `shape`
-  elevation: 2.2,   // height above the level floor (m)
+  shape: 'sphere',  // 'sphere' | 'box' | 'cylinder' | 'cone' | 'diamond' | 'none', per point via `shape`
+  elevation: 2.2,   // height above the level floor (m), per point via `elevation`
+  draggable: false, // let the user drag the points (default false), per point via `draggable`
   tooltip: (p) => `${p.data?.temp} °C`,
   label: (p) => `${p.data?.temp} °C`, // persistent text above each point (optional)
   showLabels: true,                   // default true; toggle with updateLayer('sensors', { showLabels: false })
@@ -109,15 +111,17 @@ Points with an unknown `levelId` are skipped. Clicking a point gives `target.kin
 
 - **Labels.** `label(point)` returns plain text shown permanently above the point (null for none), e.g. a live reading. They are independent of the plan's room labels (`setShowLabels`) and styled by `.vl-viewer__point-label` (`--vl-point-label`, `--vl-point-label-bg`).
 - **Visibility.** `updateLayer(id, { visible: false })` hides the layer's points, labels, rings and beams without rebuilding anything (and stops its beams' animation frames); hidden points can't be hovered or clicked. Room names are toggled separately with `setShowLabels`, so a host can hide room names while keeping point labels, or the reverse.
-- **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`.
+- **Shapes.** `shape` (layer default, overridable per point) tells kinds of points apart, e.g. sensors, inlets and consumers. In 3D they are solids; in 2D they are flat glyphs so they stay distinguishable from above: sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond. The editor's overlay points use the same glyphs (`POINT_GLYPHS`). Changing a point's shape swaps its geometry in place. Unknown values fall back to the layer's shape, then `'sphere'`. `'none'` (viewer only, not in `POINT_SHAPES`) draws no shape: the point's label, ring and beam still show at its position and height, e.g. a reading on top of a 3D model that already stands for the item. Such a point can't be hovered (no tooltip), clicked or dragged, since there is nothing to hit; `focus()` still finds it.
 - **Beam.** `beam: '#dc2626'` on a point adds an animated alert beam in that color: in 3D a translucent light column from the floor to the level's wall height (fading toward the top) plus a pulsing ground ring; in 2D an expanding, fading ring. While at least one beam is on a shown level the viewer renders every frame; with none it goes back to on-demand rendering. Under `prefers-reduced-motion: reduce` the column and ring are static (and the viewer stays on demand). `null`/omitted means no beam; removing the point or its beam frees it.
+- **Height.** `elevation` on a point (meters above the level floor) overrides the layer's `elevation` (default 1), so each point can sit at its real mounting height. The ring and label follow it; a beam still starts at the floor and reaches the wall height, or the top of the point when that is higher.
+- **Dragging.** With `draggable: true` on the layer (or on single points; a point's own `draggable` wins) the user can drag points in 2D and 3D, like markers with `movableMarkers`: the point moves live on the horizontal plane at its own height, snapped to `moveGrid` (default 0.25 m, Alt bypasses), with a "grab" cursor on hover. On drop the viewer emits `pointmove` with `{ layerId, id, levelId, position }`. It does not change the layer: save the position and call `setLayer`/`updateLayer`, otherwise the next update puts the point back. A press without movement is a normal `click`. A layer update during a drag (live values) keeps the dragged point under the pointer; the drag is cancelled if the update removes the point, moves it to another level or makes it undraggable. Dragging stays on the point's level and doesn't change its height.
 - **Ring.** `ring: '#dc2626'` on a point draws an outline ring around it in that color, so an alert state can be shown separately from the status color. `null`/omitted means no ring.
 
 ### Live updates
 
 Call `setLayer` (or `updateLayer`) again with the same `id` whenever values change. For points and heatmaps this doesn't rebuild the scene:
 
-- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, color, size, shape, beam, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
+- **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, elevation, color, size, shape, beam, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
 - **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
 
 ```ts

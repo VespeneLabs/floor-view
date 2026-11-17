@@ -93,6 +93,9 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-LAY-07: Points have a shape (sphere, box, cylinder, cone, diamond; layer default, per-point override), so kinds of items (e.g. sensors, gas inlets, consumers) can be told apart. Shapes are solids in 3D and distinct flat glyphs in 2D.
 - FR-LAY-08: Points can show an animated alert beam (a light column and pulsing ground ring in 3D, an expanding ring in 2D). The viewer renders continuously only while a beam is visible, and beams are static under `prefers-reduced-motion`.
 - FR-LAY-09: A point layer can be hidden and shown (`visible`) without rebuilding, independently of the room name labels.
+- FR-LAY-10: Points can have their own height above the level floor (`PointDatum.elevation`, overriding the layer's `elevation`); ring, label and beam follow it, updated in place.
+- FR-LAY-11: Points can be made draggable in the viewer (`PointLayer.draggable`, per point `PointDatum.draggable`; off by default): the user drags a point on the horizontal plane at its height, in 2D and 3D, snapped to `moveGrid` (Alt bypasses). The viewer reports the drop (`pointmove`: layer, point, level, position) without changing the layer; a press without movement stays a click. Live layer updates don't interrupt a drag.
+- FR-LAY-12: A point can have no drawn shape (`shape: 'none'`, per layer or per point): its label, ring and beam still show at its position and height, and it can't be hovered, clicked or dragged.
 
 ### 3.5 Floorview Studio: editor page (Must)
 

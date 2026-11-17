@@ -40,7 +40,7 @@ export interface ViewerOptions {
   showModels?: boolean;
   /** Let the user drag markers (and their 3D models) across the floor. See `setMovableMarkers`. */
   movableMarkers?: boolean;
-  /** Grid (m) that dragged markers snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
+  /** Grid (m) that dragged markers and points snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
   moveGrid?: number;
   /**
    * Minimum on-screen width of a pipeline in pixels: thin pipes are drawn thicker from far away so
@@ -52,6 +52,14 @@ export interface ViewerOptions {
 
 /** `markermove`: a marker was dragged in the viewer and dropped at `position` (plan meters, snapped). */
 export interface MarkerMoveEvent {
+  id: string;
+  levelId: string;
+  position: Point;
+}
+
+/** `pointmove`: a point of a points layer was dragged in the viewer and dropped at `position` (plan meters, snapped). */
+export interface PointMoveEvent {
+  layerId: string;
   id: string;
   levelId: string;
   position: Point;
@@ -81,6 +89,11 @@ export interface ViewerEvents {
   click: PickEvent;
   /** A marker was dragged and dropped (only with `movableMarkers`). Update the plan, e.g. `editor.updateEntity`. */
   markermove: MarkerMoveEvent;
+  /**
+   * A draggable point (`PointLayer.draggable` / `PointDatum.draggable`) was dragged and dropped.
+   * Update your data and the layer (`setLayer`/`updateLayer`).
+   */
+  pointmove: PointMoveEvent;
   /** Fired when the hovered target changes (including to null). */
   hover: PickEvent;
   modechange: ViewMode;
@@ -128,13 +141,19 @@ export class FloorplanViewer {
   private movableMarkers: boolean;
   private moveGrid: number;
   private pipeMinWidth: number;
-  private markerDrag: {
+  /** The marker or data point being dragged. */
+  private drag: {
+    /** Set for a data point: its layer. */
+    layerId?: string;
     id: string;
     levelId: string;
-    object: THREE.Object3D;
+    /** Level-local position setter: the marker object, or the point with its ring, label and beam. */
+    move: (x: number, z: number) => void;
+    /** World height of the horizontal plane the drag runs on. */
     elevation: number;
     offset: { x: number; z: number };
     original: { x: number; z: number };
+    position: { x: number; z: number };
     moved: boolean;
     pointerId: number;
   } | null = null;
@@ -207,7 +226,7 @@ export class FloorplanViewer {
     this.controls = this.createControls();
 
     const canvas = this.renderer.domElement;
-    // Capture phase: runs before OrbitControls, so a marker drag can keep the camera still.
+    // Capture phase: runs before OrbitControls, so a marker or point drag can keep the camera still.
     canvas.addEventListener('pointerdown', this.onPointerDown, { capture: true });
     canvas.addEventListener('pointerup', this.onPointerUp);
     canvas.addEventListener('pointermove', this.onPointerMove);
@@ -918,23 +937,45 @@ export class FloorplanViewer {
     return this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), -y), new THREE.Vector3());
   }
 
-  /** Start dragging the marker under the pointer, if any. True when a drag started. */
-  private startMarkerDrag(event: PointerEvent): boolean {
+  /**
+   * Start dragging what is under the pointer: a marker (with `movableMarkers`) on its level's
+   * floor plane, or a draggable data point on the horizontal plane at its own height. True when a
+   * drag started.
+   */
+  private startDrag(event: PointerEvent): boolean {
     const { target } = this.pick(event);
-    if (target?.kind !== 'marker') return false;
+    if (!target) return false;
     const built = this.built.find((b) => b.levelId === target.levelId);
-    const object = built?.markers.get(target.id);
-    if (!built || !object) return false;
-    const elevation = built.group.position.y;
+    if (!built) return false;
+    let start: THREE.Vector3;
+    let elevation = built.group.position.y;
+    let move: (x: number, z: number) => void;
+    if (target.kind === 'marker' && this.movableMarkers) {
+      const object = built.markers.get(target.id);
+      if (!object) return false;
+      start = object.position;
+      move = (x, z) => void ((object.position.x = x), (object.position.z = z));
+    } else if (target.kind === 'point' && target.layerId !== undefined) {
+      const view = this.pointViews.get(target.layerId);
+      const at = view?.isDraggable(target.id) ? view.pointPosition(target.id) : null;
+      if (!view || !at) return false;
+      start = at.position;
+      elevation += at.position.y;
+      move = (x, z) => void view.movePoint(target.id, x, z);
+    } else {
+      return false;
+    }
     const floor = this.floorPoint(elevation);
     if (!floor) return false;
-    this.markerDrag = {
+    this.drag = {
+      layerId: target.kind === 'point' ? target.layerId : undefined,
       id: target.id,
       levelId: target.levelId,
-      object,
+      move,
       elevation,
-      offset: { x: object.position.x - floor.x, z: object.position.z - floor.z },
-      original: { x: object.position.x, z: object.position.z },
+      offset: { x: start.x - floor.x, z: start.z - floor.z },
+      original: { x: start.x, z: start.z },
+      position: { x: start.x, z: start.z },
       moved: false,
       pointerId: event.pointerId,
     };
@@ -946,8 +987,8 @@ export class FloorplanViewer {
     return true;
   }
 
-  private updateMarkerDrag(event: PointerEvent): void {
-    const drag = this.markerDrag!;
+  private updateDrag(event: PointerEvent): void {
+    const drag = this.drag!;
     this.setRay(event.clientX, event.clientY);
     const floor = this.floorPoint(drag.elevation);
     if (!floor) return;
@@ -958,24 +999,35 @@ export class FloorplanViewer {
       z = Math.round(z / this.moveGrid) * this.moveGrid;
     }
     drag.moved ||= Math.abs(x - drag.original.x) > 1e-9 || Math.abs(z - drag.original.z) > 1e-9;
-    drag.object.position.x = x;
-    drag.object.position.z = z;
+    drag.position = { x, z };
+    drag.move(x, z);
     this.requestRender();
   }
 
-  /** Finish a marker drag; with an event, emit `markermove` (moved) or a `click` (not moved). */
-  private endMarkerDrag(event: PointerEvent | null): void {
-    const drag = this.markerDrag;
+  /**
+   * Finish a drag. With an event, emit `markermove`/`pointmove` (moved) or a `click` (not moved);
+   * with null the drag is cancelled, and `restore` puts the dragged object back where it started.
+   */
+  private endDrag(event: PointerEvent | null, restore = true): void {
+    const drag = this.drag;
     if (!drag) return;
-    this.markerDrag = null;
+    this.drag = null;
     this.controls.enabled = true;
     const canvas = this.renderer.domElement;
     if (canvas.hasPointerCapture(drag.pointerId)) canvas.releasePointerCapture(drag.pointerId);
     canvas.style.cursor = '';
-    if (!event) return;
+    if (!event) {
+      if (restore && drag.moved) {
+        drag.move(drag.original.x, drag.original.z);
+        this.requestRender();
+      }
+      return;
+    }
     if (drag.moved) {
-      const position = { x: drag.object.position.x, y: drag.object.position.z };
-      this.events.emit('markermove', { id: drag.id, levelId: drag.levelId, position });
+      const { id, levelId } = drag;
+      const position = { x: drag.position.x, y: drag.position.z };
+      if (drag.layerId === undefined) this.events.emit('markermove', { id, levelId, position });
+      else this.events.emit('pointmove', { layerId: drag.layerId, id, levelId, position });
     } else {
       const { target, point } = this.pick(event);
       this.events.emit('click', { target, point, originalEvent: event });
@@ -1000,7 +1052,7 @@ export class FloorplanViewer {
     this.underlay?.mesh.removeFromParent();
     this.ghost?.mesh.removeFromParent();
     this.focusState?.mesh?.removeFromParent();
-    this.endMarkerDrag(null);
+    this.endDrag(null, false);
     for (const id of new Set([...this.pointViews.keys(), ...this.heatmaps.keys()])) this.removeLayerObjects(id);
     for (const b of this.built) {
       disposeObject(b.group);
@@ -1049,6 +1101,13 @@ export class FloorplanViewer {
       }
       const heights = new Map(this.plan.levels.map((l) => [l.id, l.height]));
       view.sync(layer, new Set(this.built.map((b) => b.levelId)), this.colors.point, heights);
+      // A live update during a drag must not pull the dragged point back: keep it under the
+      // pointer, unless the update removed it, moved it to another level or made it undraggable.
+      const drag = this.drag;
+      if (drag?.layerId === layer.id) {
+        if (view.isDraggable(drag.id) && view.pointPosition(drag.id)?.levelId === drag.levelId) drag.move(drag.position.x, drag.position.z);
+        else this.endDrag(null, false);
+      }
     } else if (layer.type === 'heatmap') {
       this.applyHeatmap(layer);
     }
@@ -1099,6 +1158,7 @@ export class FloorplanViewer {
   }
 
   private removeLayerObjects(id: string): void {
+    if (this.drag?.layerId === id) this.endDrag(null, false);
     this.pointViews.get(id)?.dispose();
     this.pointViews.delete(id);
     for (const entry of this.heatmaps.get(id)?.values() ?? []) this.disposeHeatmapLevel(entry);
@@ -1245,15 +1305,15 @@ export class FloorplanViewer {
 
   private onPointerDown = (event: PointerEvent): void => {
     this.downAt = { x: event.clientX, y: event.clientY };
-    if (this.movableMarkers && event.button === 0 && !this.markerDrag && this.startMarkerDrag(event)) {
+    if (event.button === 0 && !this.drag && this.startDrag(event)) {
       this.downAt = null;
       event.stopImmediatePropagation(); // keep OrbitControls out of it
     }
   };
 
   private onPointerUp = (event: PointerEvent): void => {
-    if (this.markerDrag) {
-      this.endMarkerDrag(event);
+    if (this.drag) {
+      this.endDrag(event);
       return;
     }
     if (!this.downAt) return;
@@ -1265,8 +1325,8 @@ export class FloorplanViewer {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
-    if (this.markerDrag) {
-      this.updateMarkerDrag(event);
+    if (this.drag) {
+      this.updateDrag(event);
       return;
     }
     if (event.buttons !== 0) return; // dragging the camera
@@ -1275,8 +1335,10 @@ export class FloorplanViewer {
     if (changed) {
       this.hovered = target;
       this.setHover(target?.kind === 'wall' ? null : mesh);
-      this.renderer.domElement.style.cursor =
-        target?.kind === 'marker' && this.movableMarkers ? 'grab' : target && target.kind !== 'wall' ? 'pointer' : '';
+      const draggable =
+        (target?.kind === 'marker' && this.movableMarkers) ||
+        (target?.kind === 'point' && target.layerId !== undefined && this.pointViews.get(target.layerId)?.isDraggable(target.id));
+      this.renderer.domElement.style.cursor = draggable ? 'grab' : target && target.kind !== 'wall' ? 'pointer' : '';
       this.events.emit('hover', { target, point, originalEvent: event });
     }
     const text = target ? this.tooltipFor(target) : null;
