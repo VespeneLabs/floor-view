@@ -52,6 +52,8 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-MOD-04: `parsePlan` / `parsePlanJSON` validate untrusted input and report errors with the JSON path of the failing field (`PlanValidationError`).
 - FR-MOD-05: Plans cross every API boundary as deep copies. The editor and the viewer each keep their own copy.
 - FR-MOD-06: Helpers are available for IDs, levels, entity lookup, removal and translation, bounds, area, centroid, point-in-polygon, snapping and angle constraints.
+- FR-MOD-08: Plan edits can be expressed as serializable commands (add, update, move and remove walls, rooms, markers and pipelines; add, update and remove levels; rename the plan). `applyPlanCommands` validates a list and applies it all-or-nothing, returning the new plan with the ids it created or every error with its command index and a readable message. JSON Schemas of the commands are exported as tool definitions for AI assistants.
+- FR-MOD-09: `describePlan` returns a compact text description of a plan (ids, names, rounded geometry, areas), in full or as a summary, for one level or all, for prompts and tool results.
 - FR-MOD-07: A sample plan (`createSamplePlan()`, a two-level office) is available for demos and tests.
 
 ### 3.2 Floor plan editor (Must)
@@ -68,6 +70,8 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-EDT-10: Hosts can draw their own overlay points (e.g. sensors stored outside the plan) on top of the active level with a color and label. The user can select and drag them; the editor reports the dropped position (`overlaypointmove`) without changing the plan or its history. Overlay points can have the same shapes as viewer points (as matching 2D glyphs) and an outline ring.
 - FR-EDT-11: `clientToPlan(clientX, clientY)` converts viewport coordinates to a plan position on the active level, so hosts can accept drag-and-drop from outside the editor.
 - FR-EDT-12: Hosts can limit the available tools (`tools`) and switch the editor to read-only, where the user can select, pan and zoom but not change the plan.
+- FR-EDT-14: `applyCommands` applies a list of plan commands as one undo step, keeping the view, level and selection; `removeEntity(ref)` removes an entity without selecting it first; `updateEntity` refuses patches that would make an entity invalid.
+- FR-EDT-15: With `dragOut`, a drag that starts on an entity (in the editor also an overlay point, in the viewer also a data point) and leaves the editor or viewer is cancelled and reported (`entitydragout`), so a host can let users drop references to plan entities on its own UI. Off by default.
 - FR-EDT-13: `centerOn({ levelId, position })` pans the editor the same way as the viewer's (FR-VIEW-09), keeping the zoom.
 
 ### 3.3 2D/3D viewer (Must)
@@ -80,6 +84,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-VIEW-06: The background color, an underlay image (textured plane) and `screenshot()` are available. `fitView()` frames the plan.
 - FR-VIEW-08: `focus(target)` centers the camera on a data point, room, wall, marker or position (switching level if needed) and highlights it with a ring or outline, e.g. for "Show on floor plan" links.
 - FR-VIEW-09: `centerOn({ levelId, position })` smoothly pans to a plan position (about 300 ms, ease-out) without changing the zoom or, in 3D, the camera distance and angle, switching level if needed. It can jump instead (`animate: false`) and always jumps under `prefers-reduced-motion`.
+- FR-VIEW-10: Walls can be drawn as low stubs in 3D (`setWallDisplay('low')`, height `lowWallHeight`, default 0.3 m) so they don't hide a room's contents while rooms still read. It is a display setting: applied in place, kept across `setPlan`, the camera and plan are untouched, and walls stay pickable and focusable. 2D is unchanged. Studio has a Walls toggle in the viewer.
 - FR-VIEW-07: Colors in any CSS syntax (including `hsl()` with spaces and `oklch()`) are converted correctly for Three.js.
 
 ### 3.4 Data layers (Must)

@@ -48,4 +48,20 @@ export {
   type SyncPipelineLinksOptions,
 } from './pipeline';
 export { routePipeline, type RoutePipelineOptions } from './routing';
-export { parsePlan, parsePlanJSON, PlanValidationError } from './validate';
+export { parseEntity, parsePlan, parsePlanJSON, PlanValidationError } from './validate';
+export {
+  applyPlanCommands,
+  PLAN_COMMAND_DEFINITIONS,
+  PLAN_COMMANDS_TOOL,
+  planCommandFromTool,
+  type ApplyPlanCommandsOptions,
+  type CreatedEntity,
+  type EntityTarget,
+  type PipePointInput,
+  type PlanCommand,
+  type PlanCommandDefinition,
+  type PlanCommandError,
+  type PlanCommandResult,
+  type PlanCommandType,
+} from './commands';
+export { describePlan, type DescribePlanOptions } from './describe';

@@ -77,6 +77,20 @@ function tag(mesh: THREE.Object3D, pick: PickInfo): void {
   mesh.userData.pick = pick;
 }
 
+/**
+ * Draw the walls of a built level at most `maxHeight` meters high (a low stub that still shows the
+ * room outline), or at their real height with `null`. Done in place by scaling the wall meshes,
+ * which stay pickable; `mesh.userData.wallHeight` keeps the real height.
+ */
+export function setWallHeights(built: BuiltLevel, maxHeight: number | null): void {
+  for (const mesh of built.walls.values()) {
+    const real = mesh.userData.wallHeight as number;
+    const height = maxHeight === null ? real : Math.min(real, Math.max(maxHeight, 0.001));
+    mesh.scale.y = height / real;
+    mesh.position.y = height / 2;
+  }
+}
+
 export function buildLevel(
   level: Level,
   colors: SceneColors = DEFAULT_SCENE_COLORS,
@@ -126,6 +140,7 @@ export function buildLevel(
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set((wall.start.x + wall.end.x) / 2, height / 2, (wall.start.y + wall.end.y) / 2);
     mesh.rotation.y = -Math.atan2(dz, dx);
+    mesh.userData.wallHeight = height;
     tag(mesh, { kind: 'wall', id: wall.id, levelId: level.id });
     group.add(mesh);
     built.walls.set(wall.id, mesh);

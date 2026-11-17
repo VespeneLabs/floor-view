@@ -18,6 +18,7 @@ import {
   buildPlan,
   DEFAULT_SCENE_COLORS,
   disposeObject,
+  setWallHeights,
   type BuiltLevel,
   type ModelSlot,
   type PickInfo,
@@ -27,6 +28,9 @@ import {
 export type ViewMode = '2d' | '3d';
 /** A level id, or `'all'` to show every level stacked (3D only). */
 export type LevelSelection = string | 'all';
+
+/** How walls are drawn in 3D: at their real height, or as low stubs that don't hide a room's contents. */
+export type WallDisplay = 'full' | 'low';
 
 export interface ViewerOptions {
   plan?: FloorPlan;
@@ -39,6 +43,10 @@ export interface ViewerOptions {
   assets?: readonly ModelAsset[];
   /** Show markers' 3D models (default true). See `setShowModels`. */
   showModels?: boolean;
+  /** Draw walls at their real height (`'full'`, default) or as low stubs (`'low'`) in 3D. See `setWallDisplay`. */
+  wallDisplay?: WallDisplay;
+  /** Greatest height (m) of walls in the `'low'` wall display. Default 0.3. */
+  lowWallHeight?: number;
   /** Let the user drag markers (and their 3D models) across the floor. See `setMovableMarkers`. */
   movableMarkers?: boolean;
   /** Grid (m) that dragged markers and points snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
@@ -49,6 +57,24 @@ export interface ViewerOptions {
    * Default 2.5. See `setPipeMinWidth`.
    */
   pipeMinWidth?: number;
+  /**
+   * Let the user drag plan entities and data points out of the viewer: leaving it cancels the
+   * drag (or the camera movement) and emits `entitydragout`. Default false. See `setDragOut`.
+   */
+  dragOut?: boolean;
+}
+
+/**
+ * `entitydragout`: with `dragOut` on, a drag that started on an entity or data point left the
+ * viewer. The viewer has cancelled its own drag (nothing moved, the camera is back where it was);
+ * the pointer is still down and the gesture is the host's from here.
+ */
+export interface ViewerDragOutEvent {
+  /** What the drag started on (`layerId` is set for a data point). */
+  ref: PickInfo;
+  clientX: number;
+  clientY: number;
+  originalEvent: PointerEvent;
 }
 
 /** `markermove`: a marker was dragged in the viewer and dropped at `position` (plan meters, snapped). */
@@ -107,6 +133,8 @@ export interface ViewerEvents {
    * from the handler draws another frame: only do it when something really changed.
    */
   render: void;
+  /** A drag that started on an entity or data point left the viewer (only with `dragOut`). */
+  entitydragout: ViewerDragOutEvent;
 }
 
 interface HeatmapLevel {
@@ -149,8 +177,13 @@ export class FloorplanViewer {
   private readonly overlays = new OverlaySet((event) => this.renderer.domElement.dispatchEvent(new WheelEvent('wheel', event)));
   private assets = new Map<string, ModelAsset>();
   private showModels: boolean;
+  private wallDisplay: WallDisplay;
+  private lowWallHeight: number;
   private movableMarkers: boolean;
   private moveGrid: number;
+  private dragOut: boolean;
+  /** What the current press started on and where the camera was, for `entitydragout`. */
+  private pressed: { ref: PickInfo; position: THREE.Vector3; quaternion: THREE.Quaternion; zoom: number; target: THREE.Vector3 } | null = null;
   private pipeMinWidth: number;
   /** The marker or data point being dragged. */
   private drag: {
@@ -206,9 +239,12 @@ export class FloorplanViewer {
     this.colors = { ...DEFAULT_SCENE_COLORS, ...options.colors };
     this.assets = indexAssets(options.assets ?? []);
     this.showModels = options.showModels ?? true;
+    this.wallDisplay = options.wallDisplay === 'low' ? 'low' : 'full';
+    this.lowWallHeight = Math.max(options.lowWallHeight ?? 0.3, 0.001);
     this.movableMarkers = options.movableMarkers ?? false;
     this.moveGrid = options.moveGrid ?? 0.25;
     this.pipeMinWidth = Math.max(0, options.pipeMinWidth ?? PIPE_MIN_PIXELS);
+    this.dragOut = options.dragOut ?? false;
 
     this.element = document.createElement('div');
     this.element.className = 'vl-viewer';
@@ -300,6 +336,7 @@ export class FloorplanViewer {
     this.applyLevelVisibility();
     this.updateHighlight();
     this.applyModelVisibility();
+    this.applyWallDisplay();
     this.applyTints();
     for (const id of this.pipeTints.keys()) this.applyPipelineTint(id);
     this.attachFlows();
@@ -320,6 +357,23 @@ export class FloorplanViewer {
 
   getAssets(): ModelAsset[] {
     return [...this.assets.values()];
+  }
+
+  /**
+   * Drag-out: when on, a drag that started on a room, wall, marker, pipeline or data point and
+   * leaves the viewer is cancelled and `entitydragout` fires once: a marker or point being moved
+   * goes back (no `markermove` / `pointmove`), and a camera movement that began on the entity is
+   * undone. The host continues the gesture with its own pointer listeners, e.g. to drop a
+   * reference to the entity on a chat box; nothing resumes in the viewer when the pointer comes
+   * back. Off by default.
+   */
+  setDragOut(enabled: boolean): void {
+    this.dragOut = enabled;
+    if (!enabled) this.pressed = null;
+  }
+
+  getDragOut(): boolean {
+    return this.dragOut;
   }
 
   /**
@@ -532,6 +586,24 @@ export class FloorplanViewer {
     this.requestRender();
   }
 
+  getWallDisplay(): WallDisplay {
+    return this.wallDisplay;
+  }
+
+  /**
+   * Draw walls at their real height (`'full'`) or, in 3D, as low stubs of `lowWallHeight` (`'low'`),
+   * so they don't hide what is inside a room. A display setting like `setShowModels`: applied in
+   * place, kept across `setPlan`, and the camera and the plan stay as they are. Low walls can
+   * still be picked and focused; everything else (models, pipelines, point beams, overlays) keeps
+   * its position. The 2D view always draws walls in full.
+   */
+  setWallDisplay(display: WallDisplay): void {
+    if (display === this.wallDisplay) return;
+    this.wallDisplay = display;
+    this.applyWallDisplay();
+    this.requestRender();
+  }
+
   getMode(): ViewMode {
     return this.mode;
   }
@@ -542,6 +614,7 @@ export class FloorplanViewer {
     this.controls.dispose();
     this.controls = this.createControls();
     for (const view of this.pointViews.values()) view.setMode(mode);
+    this.applyWallDisplay();
     this.applyLevelVisibility();
     this.fitView();
     this.events.emit('modechange', mode);
@@ -719,7 +792,12 @@ export class FloorplanViewer {
   fitView(): void {
     this.pan = null;
     const box = new THREE.Box3();
-    for (const b of this.built) if (b.group.visible) box.expandByObject(b.group);
+    for (const b of this.built) {
+      if (!b.group.visible) continue;
+      box.expandByObject(b.group);
+      // Low walls must not change the framing: count them at their real height.
+      for (const wall of b.walls.values()) box.max.y = Math.max(box.max.y, b.group.position.y + (wall.userData.wallHeight as number));
+    }
     if (box.isEmpty()) box.set(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 3, 5));
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -1003,6 +1081,11 @@ export class FloorplanViewer {
 
   private applyModelVisibility(): void {
     for (const b of this.built) for (const slot of b.models) slot.slot.visible = this.showModels;
+  }
+
+  private applyWallDisplay(): void {
+    const low = this.wallDisplay === 'low' && this.mode === '3d' ? this.lowWallHeight : null;
+    for (const b of this.built) setWallHeights(b, low);
   }
 
   private attachGhost(): void {
@@ -1390,13 +1473,48 @@ export class FloorplanViewer {
 
   private onPointerDown = (event: PointerEvent): void => {
     this.downAt = { x: event.clientX, y: event.clientY };
+    this.pressed = null;
+    if (this.dragOut && event.button === 0) {
+      const ref = this.pick(event).target;
+      const camera = this.controls.object as THREE.PerspectiveCamera | THREE.OrthographicCamera;
+      if (ref) {
+        this.pressed = { ref, position: camera.position.clone(), quaternion: camera.quaternion.clone(), zoom: camera.zoom, target: this.controls.target.clone() };
+      }
+    }
     if (event.button === 0 && !this.drag && this.startDrag(event)) {
       this.downAt = null;
       event.stopImmediatePropagation(); // keep OrbitControls out of it
     }
   };
 
+  /** Drag-out: cancel the drag or camera movement, let go of the pointer and hand the gesture to the host. */
+  private leaveDrag(event: PointerEvent): void {
+    const pressed = this.pressed!;
+    this.pressed = null;
+    this.downAt = null;
+    const canvas = this.renderer.domElement;
+    if (this.drag) {
+      this.endDrag(null);
+    } else {
+      // The press moved the camera (orbit or pan): put it back, and end the controls' gesture by
+      // replacing them, since they would otherwise keep following the pointer.
+      const camera = this.controls.object as THREE.PerspectiveCamera | THREE.OrthographicCamera;
+      camera.position.copy(pressed.position);
+      camera.quaternion.copy(pressed.quaternion);
+      camera.zoom = pressed.zoom;
+      camera.updateProjectionMatrix();
+      this.controls.dispose();
+      this.controls = this.createControls();
+      this.controls.target.copy(pressed.target);
+      this.controls.update();
+    }
+    if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    this.requestRender();
+    this.events.emit('entitydragout', { ref: pressed.ref, clientX: event.clientX, clientY: event.clientY, originalEvent: event });
+  }
+
   private onPointerUp = (event: PointerEvent): void => {
+    this.pressed = null;
     if (this.drag) {
       this.endDrag(event);
       return;
@@ -1410,6 +1528,13 @@ export class FloorplanViewer {
   };
 
   private onPointerMove = (event: PointerEvent): void => {
+    if (this.pressed) {
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+        this.leaveDrag(event);
+        return;
+      }
+    }
     if (this.drag) {
       this.updateDrag(event);
       return;

@@ -31,6 +31,7 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `getPlan()` | A copy of the shown plan, or `null`. |
 | `setMode('2d' \| '3d')` / `getMode()` | Switch cameras and refit. In 2D with `level: 'all'`, only the lowest level is shown. |
 | `setLevel(id \| 'all')` / `getLevel()` | Choose which levels are visible. |
+| `setDragOut(boolean)` / `getDragOut()` | Let the user drag entities and data points out of the viewer as references (also the `dragOut` option). See [Drag-out](#drag-out). |
 | `setShowLabels(boolean)` | Toggle the plan's labels, which are the room names. Point layer labels are separate (`showLabels` on the layer). |
 | `setUnderlay({ url, x, y, width, height, opacity? } \| null, levelId?)` | Show a reference image on a level's floor, under the rooms (default: first level). Kept across `setPlan`. |
 | `setMovableMarkers(boolean)` | Let the user drag markers and their 3D models across the floor (also the `movableMarkers` option; snaps to `moveGrid`, default 0.25 m, Alt bypasses). The viewer moves the marker live and emits `markermove` on drop; update your plan (e.g. `editor.updateEntity`) and `setPlan`. A press without movement is a normal `click`. |
@@ -41,6 +42,7 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `setPipelineFlow(id, 'forward' \| 'reverse' \| null)` / `setPipelineFlows({ [id]: direction \| null }, { replace? })` / `getPipelineFlows()` | Show the flow in a pipeline as beads moving along it (`forward`: from its first point to its last). Kept across `setPlan`. The viewer renders every frame only while beads are visible; with `prefers-reduced-motion` they stand still. |
 | `setPipeMinWidth(px)` / `getPipeMinWidth()` | Minimum on-screen width of pipelines in pixels (default 2.5; 0 draws the real diameter always). |
 | `setShowModels(boolean)` / `getShowModels()` | Show or hide markers' 3D models (also the `showModels` option). Models are always drawn decolorized; `marker.color` is their accent. |
+| `setWallDisplay('full' \| 'low')` / `getWallDisplay()` | Draw walls at their real height or, in 3D, as low stubs that don't hide what is inside a room (also the `wallDisplay` option, default `'full'`). See [Low walls](#low-walls). |
 | `setAssets(assets)` / `getAssets()` | The 3D models markers can show (`marker.model`). Rebuilds the scene; each GLB loads once and is shared. See [3D model assets](assets.md). |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
 | `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. Replacing a points or heatmap layer with the same type updates it in place (see [Live updates](#live-updates)). |
@@ -55,12 +57,30 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |
 | `dispose()` | Stop rendering, free GPU resources and remove the DOM. |
 
+## Low walls
+
+In 3D, full-height walls can hide what stands in a room. `setWallDisplay('low')` (or the `wallDisplay` option) draws every wall of every level as a stub instead, so the rooms still read:
+
+```ts
+const viewer = new FloorplanViewer(el, { plan, wallDisplay: 'low', lowWallHeight: 0.5 });
+viewer.setWallDisplay('full'); // back to the real heights
+```
+
+- **Height.** Stubs are `lowWallHeight` meters high (option, default 0.3), whatever `level.height` and `wall.height` say. A wall that is already lower keeps its height.
+- **A display setting**, like `setShowModels`: it is applied in place (no scene rebuild), kept across `setPlan`, and leaves the camera and `getPlan()` alone. `fitView()` frames the plan as if the walls were full height, so the framing doesn't depend on it.
+- **Only walls change.** Models (also wall-mounted ones), pipelines, points and their alert beams, labels and overlays stay where they are; they read heights from the plan, not from the drawn walls.
+- **Picking.** Low walls are still `wall` targets for `click` / `hover`, and `focus({ kind: 'wall', id })` works as before. Because they are low, they no longer cover what is behind them, so those things can be picked and dragged.
+- **2D** always draws walls in full (seen from above they look the same); the setting takes effect again when you switch back to 3D.
+
+The plan format has no doors, windows or other openings, so walls are solid boxes in both displays.
+
 ## Events
 
 ```ts
 viewer.on('click', ({ target, point, originalEvent }) => { ... });
 viewer.on('markermove', ({ id, levelId, position }) => editor.updateEntity({ kind: 'marker', id, levelId }, { position })); // movableMarkers only
 viewer.on('pointmove', ({ layerId, id, levelId, position }) => { ... });  // draggable points only: save it, then setLayer/updateLayer
+viewer.on('entitydragout', ({ ref, clientX, clientY }) => { ... });      // dragOut only: a drag left the viewer
 viewer.on('hover', ({ target }) => { ... });      // fires only when the hovered target changes
 viewer.on('modechange', (mode) => { ... });
 viewer.on('levelchange', (level) => { ... });
@@ -70,6 +90,14 @@ viewer.on('render', () => { ... });               // a frame was drawn: screen p
 - `target` is a `PickInfo` (`{ kind: 'wall' | 'room' | 'marker' | 'pipeline' | 'point', id, levelId, layerId? }`), or `null` for empty space.
 - `point` is the pointer position in **plan coordinates** (meters), or `null` if the ray missed the floor.
 - A pointer that moves more than 4 px between down and up counts as a camera drag, not a click.
+
+## Drag-out
+
+With `dragOut: true` (or `setDragOut(true)`), a drag that starts on a room, wall, marker, pipeline or data point and leaves the viewer emits `entitydragout` once, with `ref` (a `PickInfo`, with `layerId` for a data point), `clientX`, `clientY` and `originalEvent`. The host can then let the user drop a reference to it on its own element; see the [editor's drag-out](editor.md#drag-out) for a handler, which is the same here.
+
+- The viewer cancels what the drag did: a marker or point being moved goes back without `markermove` / `pointmove`, and a camera orbit or pan that began on the entity is undone.
+- The pointer is still down and the gesture is the host's. Nothing resumes in the viewer if the pointer comes back, and the release is not a `click`.
+- A drag that starts on empty space moves the camera as usual. Off by default.
 
 ## Data layers
 

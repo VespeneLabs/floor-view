@@ -12,6 +12,8 @@ export interface ViewSettings {
   sensors: boolean;
   /** Show markers' 3D models (assets) in the viewer. */
   models: boolean;
+  /** Draw walls at their real height in 3D; off draws low stubs (`setWallDisplay('low')`). */
+  walls: boolean;
   /** Animate the flow in every pipeline (from its first point to its last). */
   flow: boolean;
 }

@@ -8,7 +8,7 @@ export { POINT_GLYPHS, POINT_SHAPES, type PointShape } from './core/shapes';
 export type { CenterOnOptions, CenterOnTarget } from './core/motion';
 
 export { FloorplanViewer } from './viewer/Viewer';
-export type { Ghost, LevelSelection, MarkerMoveEvent, PickEvent, PointMoveEvent, ViewerEvents, ViewerOptions, ViewMode } from './viewer/Viewer';
+export type { Ghost, LevelSelection, MarkerMoveEvent, PickEvent, PointMoveEvent, ViewerDragOutEvent, ViewerEvents, ViewerOptions, ViewMode, WallDisplay } from './viewer/Viewer';
 export type { DataLayer, HeatmapLayer, HeatmapPoint, PointDatum, PointLayer, RoomLayer } from './viewer/layers';
 export { interpolateIDW } from './viewer/heatmap';
 export type { PickInfo, SceneColors } from './viewer/sceneBuilder';
@@ -19,6 +19,6 @@ export { DEFAULT_SCENE_COLORS } from './viewer/sceneBuilder';
 export { toThreeColor } from './viewer/color';
 
 export { ALL_EDITOR_TOOLS, FloorplanEditor } from './editor/Editor';
-export type { EditorEvents, EditorOptions, EditorTool, MarkerTemplate, OverlayPoint, OverlayPointMove, PipeSettings } from './editor/Editor';
+export type { EditorDragOutEvent, EditorEvents, EditorOptions, EditorTool, MarkerTemplate, OverlayPoint, OverlayPointMove, PipeSettings } from './editor/Editor';
 
-export const VERSION = '0.9.0';
+export const VERSION = '0.10.0';

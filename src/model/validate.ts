@@ -1,5 +1,7 @@
 import {
   PLAN_FORMAT_VERSION,
+  type Entity,
+  type EntityKind,
   type FloorPlan,
   type Level,
   type Marker,
@@ -149,6 +151,17 @@ function pipeline(value: unknown, path: string): Pipeline {
   const data = optData(o.data, `${path}.data`);
   if (data) p.data = data;
   return p;
+}
+
+/**
+ * Validate one entity (same rules as `parsePlan`) and return it normalized. Throws
+ * `PlanValidationError` with a path under `path`.
+ */
+export function parseEntity(kind: EntityKind, value: unknown, path: string = kind): Entity {
+  if (kind === 'wall') return wall(value, path);
+  if (kind === 'room') return room(value, path);
+  if (kind === 'marker') return marker(value, path);
+  return pipeline(value, path);
 }
 
 /** Drop links that don't resolve on the same level (pipeline ends → markers, fittings → pipelines). */
