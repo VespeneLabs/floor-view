@@ -80,6 +80,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-VIEW-06: The background color, an underlay image (textured plane) and `screenshot()` are available. `fitView()` frames the plan.
 - FR-VIEW-08: `focus(target)` centers the camera on a data point, room, wall, marker or position (switching level if needed) and highlights it with a ring or outline, e.g. for "Show on floor plan" links.
 - FR-VIEW-09: `centerOn({ levelId, position })` smoothly pans to a plan position (about 300 ms, ease-out) without changing the zoom or, in 3D, the camera distance and angle, switching level if needed. It can jump instead (`animate: false`) and always jumps under `prefers-reduced-motion`.
+- FR-VIEW-10: Walls can be drawn low in 3D (`setWallDisplay('low')`: cut down to `lowWallHeight`, default 2.6 m; a small value gives stubs) so they don't hide a room's contents while rooms still read. It is a display setting: applied in place, kept across `setPlan`, the camera and plan are untouched, and walls stay pickable and focusable. 2D is unchanged. Studio has a Walls toggle in the viewer.
 - FR-VIEW-07: Colors in any CSS syntax (including `hsl()` with spaces and `oklch()`) are converted correctly for Three.js.
 
 ### 3.4 Data layers (Must)

@@ -18,6 +18,7 @@ import {
   buildPlan,
   DEFAULT_SCENE_COLORS,
   disposeObject,
+  setWallHeights,
   type BuiltLevel,
   type ModelSlot,
   type PickInfo,
@@ -27,6 +28,9 @@ import {
 export type ViewMode = '2d' | '3d';
 /** A level id, or `'all'` to show every level stacked (3D only). */
 export type LevelSelection = string | 'all';
+
+/** How walls are drawn in 3D: at their real height, or as low stubs that don't hide a room's contents. */
+export type WallDisplay = 'full' | 'low';
 
 export interface ViewerOptions {
   plan?: FloorPlan;
@@ -39,6 +43,10 @@ export interface ViewerOptions {
   assets?: readonly ModelAsset[];
   /** Show markers' 3D models (default true). See `setShowModels`. */
   showModels?: boolean;
+  /** Draw walls at their real height (`'full'`, default) or as low stubs (`'low'`) in 3D. See `setWallDisplay`. */
+  wallDisplay?: WallDisplay;
+  /** Greatest height (m) of walls in the `'low'` wall display. Default 2.6. */
+  lowWallHeight?: number;
   /** Let the user drag markers (and their 3D models) across the floor. See `setMovableMarkers`. */
   movableMarkers?: boolean;
   /** Grid (m) that dragged markers and points snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
@@ -149,6 +157,8 @@ export class FloorplanViewer {
   private readonly overlays = new OverlaySet((event) => this.renderer.domElement.dispatchEvent(new WheelEvent('wheel', event)));
   private assets = new Map<string, ModelAsset>();
   private showModels: boolean;
+  private wallDisplay: WallDisplay;
+  private lowWallHeight: number;
   private movableMarkers: boolean;
   private moveGrid: number;
   private pipeMinWidth: number;
@@ -206,6 +216,8 @@ export class FloorplanViewer {
     this.colors = { ...DEFAULT_SCENE_COLORS, ...options.colors };
     this.assets = indexAssets(options.assets ?? []);
     this.showModels = options.showModels ?? true;
+    this.wallDisplay = options.wallDisplay === 'low' ? 'low' : 'full';
+    this.lowWallHeight = Math.max(options.lowWallHeight ?? 2.6, 0.001);
     this.movableMarkers = options.movableMarkers ?? false;
     this.moveGrid = options.moveGrid ?? 0.25;
     this.pipeMinWidth = Math.max(0, options.pipeMinWidth ?? PIPE_MIN_PIXELS);
@@ -300,6 +312,7 @@ export class FloorplanViewer {
     this.applyLevelVisibility();
     this.updateHighlight();
     this.applyModelVisibility();
+    this.applyWallDisplay();
     this.applyTints();
     for (const id of this.pipeTints.keys()) this.applyPipelineTint(id);
     this.attachFlows();
@@ -532,6 +545,24 @@ export class FloorplanViewer {
     this.requestRender();
   }
 
+  getWallDisplay(): WallDisplay {
+    return this.wallDisplay;
+  }
+
+  /**
+   * Draw walls at their real height (`'full'`) or, in 3D, as low stubs of `lowWallHeight` (`'low'`),
+   * so they don't hide what is inside a room. A display setting like `setShowModels`: applied in
+   * place, kept across `setPlan`, and the camera and the plan stay as they are. Low walls can
+   * still be picked and focused; everything else (models, pipelines, point beams, overlays) keeps
+   * its position. The 2D view always draws walls in full.
+   */
+  setWallDisplay(display: WallDisplay): void {
+    if (display === this.wallDisplay) return;
+    this.wallDisplay = display;
+    this.applyWallDisplay();
+    this.requestRender();
+  }
+
   getMode(): ViewMode {
     return this.mode;
   }
@@ -542,6 +573,7 @@ export class FloorplanViewer {
     this.controls.dispose();
     this.controls = this.createControls();
     for (const view of this.pointViews.values()) view.setMode(mode);
+    this.applyWallDisplay();
     this.applyLevelVisibility();
     this.fitView();
     this.events.emit('modechange', mode);
@@ -719,7 +751,12 @@ export class FloorplanViewer {
   fitView(): void {
     this.pan = null;
     const box = new THREE.Box3();
-    for (const b of this.built) if (b.group.visible) box.expandByObject(b.group);
+    for (const b of this.built) {
+      if (!b.group.visible) continue;
+      box.expandByObject(b.group);
+      // Low walls must not change the framing: count them at their real height.
+      for (const wall of b.walls.values()) box.max.y = Math.max(box.max.y, b.group.position.y + (wall.userData.wallHeight as number));
+    }
     if (box.isEmpty()) box.set(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 3, 5));
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
@@ -1003,6 +1040,11 @@ export class FloorplanViewer {
 
   private applyModelVisibility(): void {
     for (const b of this.built) for (const slot of b.models) slot.slot.visible = this.showModels;
+  }
+
+  private applyWallDisplay(): void {
+    const low = this.wallDisplay === 'low' && this.mode === '3d' ? this.lowWallHeight : null;
+    for (const b of this.built) setWallHeights(b, low);
   }
 
   private attachGhost(): void {

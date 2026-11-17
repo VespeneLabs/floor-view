@@ -76,6 +76,10 @@ export function ViewerPanel() {
     viewer?.setShowModels(view.models);
   }, [viewer, view.models]);
 
+  useEffect(() => {
+    viewer?.setWallDisplay(view.walls ? 'full' : 'low');
+  }, [viewer, view.walls]);
+
   // Flow animation in every pipeline of the plan (the viewer keeps it across plan updates).
   const pipelineIds = plan?.levels.flatMap((l) => l.pipelines.map((p) => p.id)).join(' ') ?? '';
   useEffect(() => {
@@ -146,6 +150,7 @@ export function ViewerPanel() {
           <Toggle label="All levels" setting="allLevels" />
           <Toggle label="Labels" setting="labels" />
           <Toggle label="Assets" setting="models" />
+          <Toggle label="Walls" setting="walls" />
           <Toggle label="Flow" setting="flow" />
           <Toggle label="Occupancy" setting="occupancy" />
           <Toggle label="Sensors" setting="sensors" />

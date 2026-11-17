@@ -41,6 +41,7 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `setPipelineFlow(id, 'forward' \| 'reverse' \| null)` / `setPipelineFlows({ [id]: direction \| null }, { replace? })` / `getPipelineFlows()` | Show the flow in a pipeline as beads moving along it (`forward`: from its first point to its last). Kept across `setPlan`. The viewer renders every frame only while beads are visible; with `prefers-reduced-motion` they stand still. |
 | `setPipeMinWidth(px)` / `getPipeMinWidth()` | Minimum on-screen width of pipelines in pixels (default 2.5; 0 draws the real diameter always). |
 | `setShowModels(boolean)` / `getShowModels()` | Show or hide markers' 3D models (also the `showModels` option). Models are always drawn decolorized; `marker.color` is their accent. |
+| `setWallDisplay('full' \| 'low')` / `getWallDisplay()` | Draw walls at their real height or, in 3D, as low stubs that don't hide what is inside a room (also the `wallDisplay` option, default `'full'`). See [Low walls](#low-walls). |
 | `setAssets(assets)` / `getAssets()` | The 3D models markers can show (`marker.model`). Rebuilds the scene; each GLB loads once and is shared. See [3D model assets](assets.md). |
 | `setBackground(cssColor)` | Change the scene background, e.g. when the host switches theme. Any CSS color works, including `oklch()`. |
 | `setLayer(layer)` / `removeLayer(id)` / `getLayers()` | Add or replace a data layer by `id`, or remove one. Replacing a points or heatmap layer with the same type updates it in place (see [Live updates](#live-updates)). |
@@ -54,6 +55,23 @@ Pipelines (see [data model](data-model.md)) are drawn as tubes of their real dia
 | `screenshot()` | PNG data URL of the current view. |
 | `on(event, handler)` → unsubscribe, `off(...)` | Events (below). |
 | `dispose()` | Stop rendering, free GPU resources and remove the DOM. |
+
+## Low walls
+
+In 3D, full-height walls can hide what stands in a room. `setWallDisplay('low')` (or the `wallDisplay` option) draws every wall of every level as a stub instead, so the rooms still read:
+
+```ts
+const viewer = new FloorplanViewer(el, { plan, wallDisplay: 'low', lowWallHeight: 0.3 });
+viewer.setWallDisplay('full'); // back to the real heights
+```
+
+- **Height.** Walls are cut down to `lowWallHeight` meters (option, default 2.6), whatever `level.height` and `wall.height` say. A wall that is already lower keeps its height, so with the default only walls above 2.6 m change; set a small value such as 0.1-0.3 for an outline that hides nothing.
+- **A display setting**, like `setShowModels`: it is applied in place (no scene rebuild), kept across `setPlan`, and leaves the camera and `getPlan()` alone. `fitView()` frames the plan as if the walls were full height, so the framing doesn't depend on it.
+- **Only walls change.** Models (also wall-mounted ones), pipelines, points and their alert beams, labels and overlays stay where they are; they read heights from the plan, not from the drawn walls.
+- **Picking.** Low walls are still `wall` targets for `click` / `hover`, and `focus({ kind: 'wall', id })` works as before. Because they are low, they no longer cover what is behind them, so those things can be picked and dragged.
+- **2D** always draws walls in full (seen from above they look the same); the setting takes effect again when you switch back to 3D.
+
+The plan format has no doors, windows or other openings, so walls are solid boxes in both displays.
 
 ## Events
 
