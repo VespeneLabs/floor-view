@@ -9,7 +9,7 @@ export type { CenterOnOptions, CenterOnTarget } from './core/motion';
 
 export { FloorplanViewer } from './viewer/Viewer';
 export type { Ghost, LevelSelection, MarkerMoveEvent, PickEvent, PointMoveEvent, ViewerDragOutEvent, ViewerEvents, ViewerOptions, ViewMode, WallDisplay } from './viewer/Viewer';
-export type { DataLayer, HeatmapLayer, HeatmapPoint, PointDatum, PointLayer, RoomLayer } from './viewer/layers';
+export type { BeamStyle, DataLayer, HeatmapLayer, HeatmapPoint, PointDatum, PointLayer, RoomLayer } from './viewer/layers';
 export { interpolateIDW } from './viewer/heatmap';
 export type { PickInfo, SceneColors } from './viewer/sceneBuilder';
 export type { FlowDirection } from './viewer/pipelines';
