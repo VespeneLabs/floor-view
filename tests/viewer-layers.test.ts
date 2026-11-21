@@ -5,7 +5,7 @@ import { createSamplePlan } from '../src/samples';
 import { buildHighlight, resolveFocus } from '../src/viewer/focus';
 import { fillHeatmap, heatmapGrid, heatmapPointsOn, rasterizeHeatmap } from '../src/viewer/heatmap';
 import type { HeatmapLayer, PointLayer } from '../src/viewer/layers';
-import { PointLayerView } from '../src/viewer/pointLayer';
+import { DEFAULT_BEAM_STYLE, PointLayerView, beamPose, resolveBeamStyle } from '../src/viewer/pointLayer';
 
 const LEVELS = new Set(['level_ground', 'level_first']);
 const layer = (points: PointLayer['points'], extra: Partial<PointLayer> = {}): PointLayer => ({
@@ -154,6 +154,47 @@ describe('PointLayerView', () => {
     view.sync(layer([]), LEVELS, '#f97316'); // point removed: its beam goes too
     expect(beams(view)).toEqual([]);
     expect(view.hasBeams(LEVELS)).toBe(false);
+  });
+
+  it('applies the layer beam style: opacity, period, spread and column width', () => {
+    const beams = (v: PointLayerView) => [...v.groups.values()].flatMap((g) => g.children.filter((c) => c.name === 'point-beam')) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
+    const view = new PointLayerView('sensors');
+    const style = { opacity: 0.5, period: 2400, spread: 2.5, width: 0.6 };
+    view.sync(layer([sensor('a', 1, { beam: 'red' })], { size: 0.2, beamStyle: style }), LEVELS, '#f97316');
+    const [column, pulse] = beams(view);
+    expect(column!.scale.x).toBeCloseTo(0.12); // 0.6 × the radius
+    const base = beamPose(DEFAULT_BEAM_STYLE, null);
+    expect(column!.material.opacity).toBeCloseTo(base.columnOpacity * 0.5); // static pose, half as strong
+    expect(pulse!.material.opacity).toBeCloseTo(base.pulseOpacity * 0.5);
+
+    view.updateBeams(2399); // the end of a 2400 ms cycle, not the next one
+    expect(pulse!.scale.x).toBeCloseTo(0.2 * 2.5, 2);
+    view.updateBeams(2400);
+    expect(pulse!.scale.x).toBeCloseTo(0.2 * 1.3);
+
+    // Dropping the style returns to the defaults in place.
+    view.sync(layer([sensor('a', 1, { beam: 'red' })], { size: 0.2 }), LEVELS, '#f97316');
+    expect(column!.scale.x).toBeCloseTo(0.17);
+    expect(column!.material.opacity).toBeCloseTo(base.columnOpacity);
+  });
+
+  it('keeps the default beam pose and ignores invalid beam style values', () => {
+    expect(beamPose(DEFAULT_BEAM_STYLE, null)).toEqual({ pulseScale: 2, pulseOpacity: 0.6, columnOpacity: 0.55 });
+    const pose = beamPose(DEFAULT_BEAM_STYLE, 400);
+    expect(pose.pulseScale).toBeCloseTo(1.3 + 2.2 * 0.25);
+    expect(resolveBeamStyle({ opacity: 2, period: 0, spread: 1, width: Number.NaN })).toEqual({ ...DEFAULT_BEAM_STYLE, opacity: 1 });
+    expect(resolveBeamStyle({ opacity: -1 })).toEqual(DEFAULT_BEAM_STYLE);
+  });
+
+  it('draws rings at the layer ring opacity', () => {
+    const view = new PointLayerView('sensors');
+    const ring = () => view.groups.get('level_ground')!.children.find((c) => (c as THREE.Mesh).isMesh && !c.userData.pick) as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+    view.sync(layer([sensor('a', 1, { ring: 'red' })], { ringOpacity: 0.5 }), LEVELS, '#f97316');
+    expect(ring().material.transparent).toBe(true);
+    expect(ring().material.opacity).toBe(0.5);
+    view.sync(layer([sensor('a', 1, { ring: 'red' })]), LEVELS, '#f97316');
+    expect(ring().material.transparent).toBe(false);
+    expect(ring().material.opacity).toBe(1);
   });
 });
 

@@ -44,6 +44,21 @@ export interface PointDatum {
 }
 
 /**
+ * How the alert beams of a points layer look (`PointLayer.beamStyle`). Every field is optional;
+ * missing or invalid values keep the default.
+ */
+export interface BeamStyle {
+  /** Multiplies the opacity of the column and the pulse ring (0–1). Default 1. */
+  opacity?: number;
+  /** One pulse cycle in ms (> 0). Default 1600. */
+  period?: number;
+  /** How far the pulse ring expands, as a multiple of the point radius (> 1.3, where it starts). Default 3.5. */
+  spread?: number;
+  /** Radius of the 3D light column, as a multiple of the point radius (> 0). Default 0.85. */
+  width?: number;
+}
+
+/**
  * Renders data points (sensors, people, assets…) on top of the plan, as solids in 3D and flat
  * glyphs in 2D (sphere → circle, box → square, cylinder → hexagon, cone → triangle, diamond → diamond).
  * Replacing a points layer with `setLayer`/`updateLayer` updates the existing objects in place
@@ -68,6 +83,10 @@ export interface PointLayer {
    * `setLayer`/`updateLayer`. A press without movement is a normal `click`. Default false.
    */
   draggable?: boolean;
+  /** Look of the layer's alert beams (see `PointDatum.beam`): opacity, speed and size. */
+  beamStyle?: BeamStyle;
+  /** Opacity of the layer's outline rings (see `PointDatum.ring`), 0–1. Default 1. */
+  ringOpacity?: number;
   tooltip?: (point: PointDatum) => string | null | undefined;
   /**
    * Persistent text label above each point (plain text), e.g. a live reading. Return null or

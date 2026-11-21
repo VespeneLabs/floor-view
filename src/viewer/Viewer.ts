@@ -47,6 +47,12 @@ export interface ViewerOptions {
   wallDisplay?: WallDisplay;
   /** Greatest height (m) of walls in the `'low'` wall display. Default 0.3. */
   lowWallHeight?: number;
+  /**
+   * How strongly a marker tint (`setMarkerTints`) replaces the marker's own color, 0–1: 1 shows
+   * the tint as it is, 0.5 mixes it half and half with the model's clay (or the glyph's color).
+   * Default 1.
+   */
+  markerTintStrength?: number;
   /** Let the user drag markers (and their 3D models) across the floor. See `setMovableMarkers`. */
   movableMarkers?: boolean;
   /** Grid (m) that dragged markers and points snap to; 0 turns snapping off. Alt bypasses it. Default 0.25. */
@@ -179,6 +185,7 @@ export class FloorplanViewer {
   private showModels: boolean;
   private wallDisplay: WallDisplay;
   private lowWallHeight: number;
+  private readonly markerTintStrength: number;
   private movableMarkers: boolean;
   private moveGrid: number;
   private dragOut: boolean;
@@ -241,6 +248,8 @@ export class FloorplanViewer {
     this.showModels = options.showModels ?? true;
     this.wallDisplay = options.wallDisplay === 'low' ? 'low' : 'full';
     this.lowWallHeight = Math.max(options.lowWallHeight ?? 0.3, 0.001);
+    const strength = options.markerTintStrength ?? 1;
+    this.markerTintStrength = Number.isFinite(strength) ? Math.min(Math.max(strength, 0), 1) : 1;
     this.movableMarkers = options.movableMarkers ?? false;
     this.moveGrid = options.moveGrid ?? 0.25;
     this.pipeMinWidth = Math.max(0, options.pipeMinWidth ?? PIPE_MIN_PIXELS);
@@ -1056,8 +1065,9 @@ export class FloorplanViewer {
 
   private modelStyle(slot: ModelSlot): ModelStyle {
     const tint = this.tints.get(slot.markerId);
-    const accent = tint ?? slot.color;
-    return { clay: toThreeColor(this.colors.model), accent: accent ? toThreeColor(accent) : null, whole: tint !== undefined };
+    const clay = toThreeColor(this.colors.model);
+    if (tint !== undefined) return { clay, accent: clay.clone().lerp(toThreeColor(tint), this.markerTintStrength), whole: true };
+    return { clay, accent: slot.color ? toThreeColor(slot.color) : null, whole: false };
   }
 
   /** Apply the current tint (or none) of one marker to its scene objects, in place. */
@@ -1066,12 +1076,12 @@ export class FloorplanViewer {
     for (const b of this.built) {
       const slot = b.models.find((m) => m.markerId === id);
       if (slot) {
-        if (slot.placeholder) recolor(slot.placeholder, tint);
+        if (slot.placeholder) recolor(slot.placeholder, tint, this.markerTintStrength);
         else applyModelStyle(slot.slot, this.modelStyle(slot));
         continue;
       }
       const glyph = b.markers.get(id);
-      if (glyph && (glyph as THREE.Mesh).isMesh) recolor(glyph as THREE.Mesh, tint);
+      if (glyph && (glyph as THREE.Mesh).isMesh) recolor(glyph as THREE.Mesh, tint, this.markerTintStrength);
     }
   }
 
@@ -1571,7 +1581,9 @@ export class FloorplanViewer {
 }
 
 /** Set a marker glyph or placeholder to `tint`, or back to its base color. */
-function recolor(mesh: THREE.Mesh, tint: string | undefined): void {
+/** Color `mesh` in its base color, mixed toward `tint` by `strength` (0–1) when there is one. */
+function recolor(mesh: THREE.Mesh, tint: string | undefined, strength: number): void {
   const material = mesh.material as THREE.MeshStandardMaterial;
-  toThreeColor(tint ?? (mesh.userData.baseColor as string), material.color);
+  toThreeColor(mesh.userData.baseColor as string, material.color);
+  if (tint !== undefined) material.color.lerp(toThreeColor(tint), strength);
 }

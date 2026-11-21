@@ -3,7 +3,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
 import { POINT_GLYPHS, POINT_SHAPES, pointShape, type PointShape } from '../core/shapes';
 import { toThreeColor } from './color';
-import type { PointDatum, PointLayer } from './layers';
+import type { BeamStyle, PointDatum, PointLayer } from './layers';
 import type { PickInfo } from './sceneBuilder';
 
 interface PointItem {
@@ -22,12 +22,31 @@ interface Beam {
   pulse: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   /** Point radius the pulse scales from. */
   radius: number;
+  /** The layer's beam style, with defaults filled in. */
+  style: Required<BeamStyle>;
 }
 
-/** One pulse cycle in ms. */
+/** One pulse cycle in ms (the default `BeamStyle.period`). */
 export const BEAM_PERIOD = 1600;
 const DEFAULT_BEAM_HEIGHT = 3;
 const COLUMN_OPACITY = 0.55;
+/** The pulse ring starts at this multiple of the point radius. */
+const PULSE_START = 1.3;
+
+/** The defaults of `BeamStyle`. */
+export const DEFAULT_BEAM_STYLE: Readonly<Required<BeamStyle>> = { opacity: 1, period: BEAM_PERIOD, spread: 3.5, width: 0.85 };
+
+/** `style` with defaults for missing or invalid values. */
+export function resolveBeamStyle(style: BeamStyle | undefined): Required<BeamStyle> {
+  const pick = (value: number | undefined, fallback: number, valid: (v: number) => boolean) =>
+    value !== undefined && Number.isFinite(value) && valid(value) ? value : fallback;
+  return {
+    opacity: Math.min(pick(style?.opacity, DEFAULT_BEAM_STYLE.opacity, (v) => v >= 0), 1),
+    period: pick(style?.period, DEFAULT_BEAM_STYLE.period, (v) => v > 0),
+    spread: pick(style?.spread, DEFAULT_BEAM_STYLE.spread, (v) => v > PULSE_START),
+    width: pick(style?.width, DEFAULT_BEAM_STYLE.width, (v) => v > 0),
+  };
+}
 
 /** Vertical alpha gradient for the beam column: opaque at the floor, transparent at the top. */
 function beamGradient(): THREE.DataTexture {
@@ -262,6 +281,9 @@ export class PointLayerView {
         this.group(item.levelId).add(item.ring);
       }
       toThreeColor(point.ring, item.ring.material.color);
+      const ringOpacity = Math.min(Math.max(layer.ringOpacity ?? 1, 0), 1);
+      item.ring.material.transparent = ringOpacity < 1;
+      item.ring.material.opacity = ringOpacity;
       item.ring.scale.setScalar(size * 1.55);
       item.ring.position.copy(mesh.position);
     } else if (item.ring) {
@@ -280,9 +302,11 @@ export class PointLayerView {
       toThreeColor(point.beam, column.material.color);
       pulse.material.color.copy(column.material.color);
       item.beam.radius = size;
+      item.beam.style = resolveBeamStyle(layer.beamStyle);
+      const width = size * item.beam.style.width;
       column.position.set(point.position.x, 0.02, point.position.y);
       // Up to the level's wall height, or to the point itself when it sits higher.
-      column.scale.set(size * 0.85, Math.max(beamHeight - 0.02, y + size - 0.02, 0.5), size * 0.85);
+      column.scale.set(width, Math.max(beamHeight - 0.02, y + size - 0.02, 0.5), width);
       pulse.position.set(point.position.x, 0.07, point.position.y);
       poseBeam(item.beam, null);
     } else if (item.beam) {
@@ -327,7 +351,7 @@ export class PointLayerView {
       mesh.renderOrder = 2;
     }
     column.visible = this.mode === '3d';
-    return { column, pulse, radius: 1 };
+    return { column, pulse, radius: 1, style: { ...DEFAULT_BEAM_STYLE } };
   }
 
   private disposeBeam(beam: Beam): void {
@@ -353,17 +377,30 @@ export class PointLayerView {
   }
 }
 
-/** Pulse: the ground ring expands and fades once per period while the column breathes. Null: static. */
+/**
+ * The pulse ring's scale (a multiple of the point radius) and both opacities at `time` (ms), or
+ * the static pose for null: the ring expands from 1.3× the radius to `style.spread` and fades once
+ * per `style.period` while the column breathes; `style.opacity` scales both.
+ */
+export function beamPose(style: Required<BeamStyle>, time: number | null): { pulseScale: number; pulseOpacity: number; columnOpacity: number } {
+  const range = style.spread - PULSE_START;
+  if (time === null) {
+    // About a third of the way out, which is 2× the radius with the default spread.
+    return { pulseScale: PULSE_START + range * (0.7 / 2.2), pulseOpacity: 0.6 * style.opacity, columnOpacity: COLUMN_OPACITY * style.opacity };
+  }
+  const phase = (time % style.period) / style.period;
+  return {
+    pulseScale: PULSE_START + range * phase,
+    pulseOpacity: 0.85 * style.opacity * (1 - phase) ** 1.3,
+    columnOpacity: COLUMN_OPACITY * style.opacity * (0.75 + 0.25 * Math.cos(phase * Math.PI * 2)),
+  };
+}
+
+/** Pose a beam's meshes for `time` (see `beamPose`). Null: static. */
 function poseBeam(beam: Beam, time: number | null): void {
   const { column, pulse, radius } = beam;
-  if (time === null) {
-    pulse.scale.setScalar(radius * 2);
-    pulse.material.opacity = 0.6;
-    column.material.opacity = COLUMN_OPACITY;
-    return;
-  }
-  const phase = (time % BEAM_PERIOD) / BEAM_PERIOD;
-  pulse.scale.setScalar(radius * (1.3 + 2.2 * phase));
-  pulse.material.opacity = 0.85 * (1 - phase) ** 1.3;
-  column.material.opacity = COLUMN_OPACITY * (0.75 + 0.25 * Math.cos(phase * Math.PI * 2));
+  const pose = beamPose(beam.style, time);
+  pulse.scale.setScalar(radius * pose.pulseScale);
+  pulse.material.opacity = pose.pulseOpacity;
+  column.material.opacity = pose.columnOpacity;
 }
