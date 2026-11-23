@@ -16,7 +16,9 @@ export function StatusBar() {
   const { snapshot, message } = useStudio();
   const route = useRoute();
   const hint =
-    route === 'air-quality'
+    route === 'gas-detection'
+      ? 'Simulated gas detectors · pick an incident and play it · hover a detector or a room for readings · click a gas to see it alone'
+      : route === 'air-quality'
       ? 'Simulated sensors · hover rooms or sensors for readings · drag the timeline or play a day'
       : route === 'import'
         ? 'Upload a scan or sketch · the assistant asks what it needs and drafts a plan · “Use this plan” opens it in the editor'

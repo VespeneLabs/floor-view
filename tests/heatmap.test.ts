@@ -83,6 +83,34 @@ describe('rasterizeHeatmap', () => {
     expect(raster.data[((raster.height - 1) * raster.width + raster.width - 1) * 4 + 3]).toBe(255);
   });
 
+  it('interpolates every room on its own with byRoom', () => {
+    const rooms = createLevel({
+      id: 'l',
+      rooms: [
+        { id: 'a', name: 'A', points: square(0, 0, 2) },
+        { id: 'b', name: 'B', points: square(2, 0, 2) },
+        { id: 'c', name: 'C', points: square(4, 0, 2) },
+      ],
+    });
+    const points = [
+      { levelId: 'l', position: { x: 1, y: 1 }, value: 10 },
+      { levelId: 'l', position: { x: 3, y: 1 }, value: 0 },
+      // Outside every room: ignored.
+      { levelId: 'l', position: { x: 5, y: 9 }, value: 10 },
+    ];
+    const cell = (data: Uint8Array, col: number) => [...data.slice(col * 4, col * 4 + 4)];
+
+    const mixed = rasterizeHeatmap(rooms, { ...layer, points })!;
+    expect(cell(mixed.data, 3)[2]).toBeGreaterThan(0); // x≈1.75 in A: some blue from B's point
+    expect(cell(mixed.data, 8)[3]).toBe(255); // room C is painted from its neighbors
+
+    const apart = rasterizeHeatmap(rooms, { ...layer, points, byRoom: true, clipToRooms: false })!;
+    expect(apart.width).toBe(12); // still clipped to the rooms
+    expect(cell(apart.data, 3)).toEqual([255, 0, 0, 255]); // A only sees its own point
+    expect(cell(apart.data, 4)).toEqual([0, 0, 255, 255]); // x≈2.25 in B
+    expect(cell(apart.data, 8)[3]).toBe(0); // C has no points: transparent
+  });
+
   it('returns null for levels without points', () => {
     expect(rasterizeHeatmap({ ...level, id: 'other' }, layer)).toBeNull();
   });

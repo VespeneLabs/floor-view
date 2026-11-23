@@ -1295,7 +1295,8 @@ export class FloorplanViewer {
   private applyHeatmap(layer: HeatmapLayer): void {
     let levels = this.heatmaps.get(layer.id);
     if (!levels) this.heatmaps.set(layer.id, (levels = new Map()));
-    const key = `${layer.resolution ?? ''}|${layer.clipToRooms ?? true}|${layer.elevation ?? ''}`;
+    const clipped = (layer.byRoom ?? false) || (layer.clipToRooms ?? true);
+    const key = `${layer.resolution ?? ''}|${clipped}|${layer.byRoom ?? false}|${layer.elevation ?? ''}`;
     for (const b of this.built) {
       const level = this.levelById(b.levelId);
       const points = level ? heatmapPointsOn(layer, b.levelId) : [];
@@ -1306,7 +1307,7 @@ export class FloorplanViewer {
         continue;
       }
       // Without room clipping the grid bounds follow the points, so it can't be cached.
-      const reusable = entry && entry.key === key && (layer.clipToRooms ?? true);
+      const reusable = entry && entry.key === key && clipped;
       if (entry && reusable) {
         const texture = entry.mesh.material.map as THREE.DataTexture;
         fillHeatmap(entry.grid, points, layer, texture.image.data as Uint8Array<ArrayBuffer>);

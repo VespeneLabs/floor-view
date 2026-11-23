@@ -1,6 +1,6 @@
 import { createPlan, createSamplePlan, parsePlanJSON } from '@vespenelabs/floorview';
 import { createKenneyDemoPlan } from '@vespenelabs/floorview/kenney';
-import { Box, ChevronDown, Download, FilePlus2, FolderOpen, Moon, Sparkles, Sun } from 'lucide-react';
+import { Box, ChevronDown, Download, FilePlus2, FolderOpen, Moon, Siren, Sparkles, Sun } from 'lucide-react';
 import { useId, useRef } from 'react';
 
 import { useStudio } from './studio-context';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { createGasDemoPlan } from '@/features/gas-detection/site';
 import { navigate, useRoute, type Route } from '@/lib/route';
 import { setTheme, useTheme } from '@/lib/theme';
 
@@ -82,6 +83,7 @@ export function AppHeader() {
         {(
           [
             ['editor', 'Editor'],
+            ['gas-detection', 'Gas detection'],
             ['air-quality', 'Air quality'],
             ['import', 'AI import'],
           ] as [Route, string][]
@@ -111,6 +113,9 @@ export function AppHeader() {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => editor?.setPlan(createKenneyDemoPlan(), { keepHistory: true })}>
               <Box /> Load 3D assets demo
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => editor?.setPlan(createGasDemoPlan(), { keepHistory: true })}>
+              <Siren /> Load gas detection demo
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => fileInput.current?.click()}>
