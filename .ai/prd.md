@@ -9,7 +9,7 @@
 Floorview is a set of browser tools for creating floor plans of buildings and showing data on them. It has three parts:
 
 - **`@vespenelabs/floorview`**: a framework-free TypeScript library with an SVG floor plan editor (`FloorplanEditor`), an interactive 2D/3D viewer built on Three.js (`FloorplanViewer`) with data layers (room colors, points, heatmaps), and a small, versioned JSON plan format with a validator.
-- **Floorview Studio**: a React demo app that uses the library: an editor with a live 3D view and property inspector, an air quality monitoring demo, and an AI import wizard.
+- **Floorview Studio**: a React demo app that uses the library: an editor with a live 3D view and property inspector, a gas detection demo, an air quality monitoring demo, and an AI import wizard.
 - **AI import**: a Claude-based assistant that turns a scanned drawing, blueprint or sketch into a first digital plan through a wizard and a chat. It asks questions when something is unclear and acts as a floor plan specialist with senior architect skills.
 
 ### 1.2 Goals
@@ -91,7 +91,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 
 - FR-LAY-01: **Room layer:** colors each room from a function of the room (e.g. occupancy, a sensor value), with opacity and tooltip text.
 - FR-LAY-02: **Point layer:** draws data points (e.g. sensors) as spheres at plan positions, with color, size and tooltip.
-- FR-LAY-03: **Heatmap layer:** interpolates point values over the floor (inverse distance weighting), colors them with configurable color stops and clips the result to rooms.
+- FR-LAY-03: **Heatmap layer:** interpolates point values over the floor (inverse distance weighting), colors them with configurable color stops and clips the result to rooms. With `byRoom`, every room is interpolated on its own from the points inside it (walls stop what is measured, e.g. a gas), and rooms without points stay transparent.
 - FR-LAY-04: Layers are added, replaced and removed by ID. They are re-applied automatically when the plan changes, and an open tooltip refreshes when the layer data changes.
 - FR-LAY-05: Point layers can show a persistent text label per point (e.g. a live reading), toggled per layer independently of the plan's room labels, and an outline ring per point (e.g. alert state) separate from the fill color.
 - FR-LAY-06: Replacing a points or heatmap layer with new values updates the scene in place (points matched by ID, heatmap texture refilled with a cached room mask), so values can update every 1–5 s for about 100 points without rebuilding the scene. `updateLayer(id, patch)` merges a partial update.
@@ -122,6 +122,17 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-AQ-04: A time-of-day slider with day playback changes the readings.
 - FR-AQ-05: The sidebar shows a legend, a Good/Moderate/Poor summary and the rooms sorted from worst to best (distance from the ideal value).
 - FR-AQ-06: The simulation is deterministic (an office day: people drive CO₂, humidity and temperature, the kitchen spikes PM2.5 at lunch, the server room runs hot), so scrubbing is reproducible. Real sensor data can replace it behind the same data shapes.
+
+### 3.6a Gas detection demo (Should)
+
+- FR-GAS-01: The gas detection page (`#/gas-detection`) shows fixed gas detectors on a plan: its built-in demo site (a process building with eight rooms, Gas kit equipment, three gas lines and 19 detectors), or the plan in the editor when that plan has detectors. The demo site can be loaded into the editor (page button and File menu).
+- FR-GAS-02: A detector is a marker of kind `gas-detector` with its gas in `data.gas` (methane, hydrogen, hydrogen sulfide, carbon monoxide or oxygen) and an optional detector model in `data.model`.
+- FR-GAS-03: Each gas has a unit, a clean-air value and two alarm thresholds (Alarm 1 and Alarm 2, and oxygen alarms on a falling reading). The thresholds are demo values. A shared hazard scale makes gases with different units comparable.
+- FR-GAS-04: The map shows an area heatmap of the hazard, interpolated between the detectors of each room, so rooms without detectors stay clear and a gas does not appear to pass through walls.
+- FR-GAS-05: The page shows which gas is detected and where: a status banner names each gas in alarm with its highest reading, detector and room. On the plan, a detector in alarm has a ring and a tinted post, Alarm 2 adds a beam, and each room in alarm shows a label with the gas and its highest reading. Gases differ by color and by point shape, and every alarm state has a text label.
+- FR-GAS-06: The user can show one gas alone (heatmap, detectors and legend with that gas's thresholds), list the detectors sorted by reading, focus a detector on the plan and read an event log of alarm changes.
+- FR-GAS-07: Simulated incidents drive the readings: one release per gas on the plan and one with two gases at once, on a 10-minute timeline with playback. The simulation is deterministic. Real detector data can replace it behind the same data shapes.
+- FR-GAS-08: Pipelines that run through a room in alarm and carry a medium that explains the gas are tinted and listed as possible sources.
 
 ### 3.7 AI import wizard (Must)
 
@@ -206,14 +217,14 @@ Most clients are in the gas industry; pipes are drawn as routes, not assembled f
 ### 4.1 In scope
 
 - Library: plan model and validator, editor, 2D/3D viewer, room/point/heatmap layers, underlay, theming through CSS variables.
-- Studio: editor page, air quality demo, AI import wizard with a dev-server endpoint and a mock mode.
+- Studio: editor page, gas detection demo, air quality demo, AI import wizard with a dev-server endpoint and a mock mode.
 - Documentation in `README.md` and `docs/`.
 
 ### 4.2 Out of scope (today)
 
 - Hosting, user accounts and authentication.
 - A production server for `/api/architect` (a static studio build has no endpoint).
-- Real sensor integration (the air quality and occupancy data are simulated).
+- Real sensor integration (the gas detection, air quality and occupancy data are simulated).
 - Saving plans to a server or sharing them between users; the browser stores one plan.
 - Saving the underlay scan with the plan (it is lost on reload).
 - PDF upload (only images), DXF/IFC/CAD import and export.
@@ -360,6 +371,17 @@ Most clients are in the gas industry; pipes are drawn as routes, not assembled f
   - Selecting a metric shows its heatmap clipped to rooms, with a legend of its bands.
   - The time slider and playback change the readings during the day.
   - The room list is sorted worst first and shows a Good/Moderate/Poor badge per room.
+  - The page works when opened directly by URL.
+
+- ID: US-033
+- Title: Gas detection map
+- Description: As a safety engineer, I want to see my gas detectors on the plan with a heatmap and clear alarms so that I know which gas is detected and where.
+- Acceptance Criteria:
+  - Each detector is on the plan with its gas, reading and alarm state. Hovering shows its model and thresholds.
+  - The heatmap colors each room from its own detectors, from normal over Alarm 1 to Alarm 2.
+  - When a detector alarms, the page names the gas, the reading, the detector and the room, and the plan marks the place.
+  - Choosing one gas shows only that gas with its thresholds in the legend.
+  - Playing an incident changes the readings over time, and the event log lists every alarm change.
   - The page works when opened directly by URL.
 
 ### 5.5 AI import

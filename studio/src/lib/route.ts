@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from 'react';
 
 /** Studio pages, addressed by URL hash (`#/air-quality`) so they can be linked without a router. */
-export type Route = 'editor' | 'air-quality' | 'import';
+export type Route = 'editor' | 'gas-detection' | 'air-quality' | 'import';
 
-const ROUTES: Record<string, Route> = { '#/air-quality': 'air-quality', '#/import': 'import' };
+const ROUTES: Record<string, Route> = { '#/gas-detection': 'gas-detection', '#/air-quality': 'air-quality', '#/import': 'import' };
 
 function current(): Route {
   return ROUTES[window.location.hash] ?? 'editor';

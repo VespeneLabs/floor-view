@@ -178,7 +178,7 @@ viewer.removeOverlay('tank-1'); // detaches the element and hands it back
 Call `setLayer` (or `updateLayer`) again with the same `id` whenever values change. For points and heatmaps this doesn't rebuild the scene:
 
 - **Points** are matched by `id`: existing meshes, rings and labels are updated in place (position, elevation, color, size, shape, beam, label text), new ids are added and missing ones removed. About 100 points every second is cheap.
-- **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
+- **Heatmaps** refill the existing texture. The cell grid and its room mask are cached per level until the plan, `resolution`, `clipToRooms`, `byRoom` or `elevation` changes, so only the interpolation runs (with `clipToRooms: false` the grid follows the points and is rebuilt).
 
 ```ts
 setInterval(async () => {
@@ -217,11 +217,14 @@ viewer.setLayer({
   power: 2.5,         // inverse-distance-weighting power, default 2 (higher = more local)
   maxDistance: 8,     // optional: cells farther from every point stay transparent
   clipToRooms: true,  // default: paint only inside rooms
+  byRoom: false,      // true: interpolate every room on its own (see below)
   opacity: 0.85,
 });
 ```
 
 Values are interpolated with inverse distance weighting and colored by linear interpolation between `colorStops`; values outside the stops are clamped. Each level is rasterized into a texture on the floor; later `setLayer` calls with new values refill it in place (see [Live updates](#live-updates)). Heatmaps are **not pickable**: hovering reaches the rooms underneath, so pair a heatmap with a room layer whose `tooltip` reports the value (`color` may return a neutral color so the heatmap reads cleanly). `interpolateIDW(points, p)` is exported to compute the same value for a single position.
+
+With `byRoom: true`, the layer interpolates every room on its own, as if walls stop what you measure (a gas, or the air of a closed room). A cell takes its value only from the points inside the same room. Rooms without points stay transparent, and points outside every room are ignored. The layer always clips to rooms in this mode.
 
 Tooltips are plain text, and `\n` starts a new line. If a tooltip is open when `setLayer` or `removeLayer` runs, its text is refreshed in place. Markers that have a `name` show it as a tooltip by default.
 

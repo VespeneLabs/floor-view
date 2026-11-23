@@ -106,7 +106,7 @@ function hash(key: string, slot: number): number {
 }
 
 /** Noise that changes smoothly over time (interpolated between quarter-hour slots). */
-function smoothNoise(key: string, hour: number): number {
+export function smoothNoise(key: string, hour: number): number {
   const slot = Math.floor(hour * 4);
   const t = hour * 4 - slot;
   return hash(key, slot) * (1 - t) + hash(key, slot + 1) * t;

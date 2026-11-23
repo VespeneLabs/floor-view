@@ -90,10 +90,15 @@ export interface HeatmapGrid {
   cellSize: number;
   /** 1 = inside a room (or no clipping). */
   mask: Uint8Array;
+  /** With `byRoom`: per cell, the index of its room in `outlines` (-1 outside every room). */
+  rooms?: Int16Array;
+  /** With `byRoom`: the room outlines the grid was built from, used to sort points into rooms. */
+  outlines?: Point[][];
 }
 
 export function heatmapGrid(level: Level, layer: HeatmapLayer, points: readonly HeatmapPoint[]): HeatmapGrid | null {
-  const clip = layer.clipToRooms ?? true;
+  const byRoom = layer.byRoom ?? false;
+  const clip = byRoom || (layer.clipToRooms ?? true);
   const outline = clip ? level.rooms.flatMap((r) => r.points) : [...level.walls.flatMap((w) => [w.start, w.end]), ...points.map((p) => p.position)];
   if (outline.length === 0) return null;
   const minX = Math.min(...outline.map((p) => p.x));
@@ -106,15 +111,25 @@ export function heatmapGrid(level: Level, layer: HeatmapLayer, points: readonly 
   const width = Math.max(1, Math.ceil((maxX - minX) / cellSize));
   const height = Math.max(1, Math.ceil((maxY - minY) / cellSize));
   const mask = new Uint8Array(width * height).fill(1);
+  const rooms = byRoom ? new Int16Array(width * height) : undefined;
   if (clip) {
     for (let row = 0; row < height; row++) {
       for (let col = 0; col < width; col++) {
         const p = { x: minX + (col + 0.5) * cellSize, y: minY + (row + 0.5) * cellSize };
-        if (!level.rooms.some((r) => pointInPolygon(p, r.points))) mask[row * width + col] = 0;
+        const room = level.rooms.findIndex((r) => pointInPolygon(p, r.points));
+        if (room < 0) mask[row * width + col] = 0;
+        if (rooms) rooms[row * width + col] = room;
       }
     }
   }
-  return { width, height, minX, minY, cellSize, mask };
+  return { width, height, minX, minY, cellSize, mask, ...(rooms ? { rooms, outlines: level.rooms.map((r) => r.points) } : {}) };
+}
+
+/** The points inside each room outline (a point belongs to the first room that contains it; others are dropped). */
+function pointsByRoom(points: readonly HeatmapPoint[], outlines: readonly Point[][]): HeatmapPoint[][] {
+  const groups: HeatmapPoint[][] = outlines.map(() => []);
+  for (const p of points) groups[outlines.findIndex((o) => pointInPolygon(p.position, o))]?.push(p);
+  return groups;
 }
 
 /** Writes the colors for `points` into `data` (RGBA, `grid.width × grid.height`), reusing it when given. */
@@ -126,13 +141,16 @@ export function fillHeatmap(
 ): Uint8Array<ArrayBuffer> {
   const stops = resolveStops(layer.colorStops);
   const alpha = Math.round((layer.opacity ?? 0.8) * 255);
+  // `byRoom`: each cell only sees the points of its own room.
+  const groups = grid.rooms && grid.outlines ? pointsByRoom(points, grid.outlines) : null;
   data.fill(0);
   for (let row = 0; row < grid.height; row++) {
     for (let col = 0; col < grid.width; col++) {
       const cell = row * grid.width + col;
       if (!grid.mask[cell]) continue;
       const p = { x: grid.minX + (col + 0.5) * grid.cellSize, y: grid.minY + (row + 0.5) * grid.cellSize };
-      const value = interpolateIDW(points, p, layer.power, layer.maxDistance);
+      const near = groups ? groups[grid.rooms![cell]!] : points;
+      const value = near ? interpolateIDW(near, p, layer.power, layer.maxDistance) : null;
       if (value === null) continue;
       const [r, g, b] = sampleStops(stops, value);
       const i = cell * 4;
@@ -151,8 +169,8 @@ export function heatmapPointsOn(layer: HeatmapLayer, levelId: string): HeatmapPo
 }
 
 /**
- * Rasterize a heatmap for one level. Cells outside every room (when `clipToRooms`) or farther
- * than `maxDistance` from all points are transparent. Returns null when the level has no points.
+ * Rasterize a heatmap for one level. Cells outside every room (when `clipToRooms`), farther
+ * than `maxDistance` from all points or (with `byRoom`) in a room without points are transparent. Returns null when the level has no points.
  */
 export function rasterizeHeatmap(level: Level, layer: HeatmapLayer): HeatmapRaster | null {
   const points = heatmapPointsOn(layer, level.id);

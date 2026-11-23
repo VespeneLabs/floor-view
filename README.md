@@ -6,7 +6,7 @@
 - **`FloorplanEditor`**: an SVG editor for drawing walls, rooms, markers and **pipelines** (3D routes with heights, risers, tees and fittings, connected to equipment, with automatic routing between equipment) on a snapping grid, with selection, move/reshape, levels and undo/redo.
 - A small, versioned **JSON plan format** with a validator, so plans can be stored, exchanged and loaded safely. It is also available without Three.js or the DOM as `@vespenelabs/floorview/model`, for use on a server.
 
-It ships with **Floorview Studio** (`studio/`), a React + shadcn/ui demo app: an editor with a live 3D view, plus an **air quality** monitoring demo (`#/air-quality`) and an **AI import** wizard (`#/import`): upload a scanned drawing and a Claude-based assistant asks a few questions and drafts the plan with you.
+It ships with **Floorview Studio** (`studio/`), a React + shadcn/ui demo app: an editor with a live 3D view, plus a **gas detection** demo (`#/gas-detection`: fixed gas detectors, an area heatmap and alarms that name the detected gas), an **air quality** monitoring demo (`#/air-quality`) and an **AI import** wizard (`#/import`): upload a scanned drawing and a Claude-based assistant asks a few questions and drafts the plan with you.
 
 ## Quick start
 

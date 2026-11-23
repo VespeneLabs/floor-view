@@ -10,6 +10,7 @@ import { StatusBar } from '@/features/studio/StatusBar';
 import { StudioProvider } from '@/features/studio/StudioProvider';
 import { ViewerPanel } from '@/features/viewer/ViewerPanel';
 import { AirQualityView } from '@/features/air-quality/AirQualityView';
+import { GasDetectionView } from '@/features/gas-detection/GasDetectionView';
 import { ImportPage } from '@/features/import/ImportPage';
 import { useRoute } from '@/lib/route';
 
@@ -36,6 +37,7 @@ export function App() {
               </div>
             </main>
           </div>
+          {route === 'gas-detection' && <GasDetectionView />}
           {route === 'air-quality' && <AirQualityView />}
           {importOpened && (
             <div hidden={route !== 'import'} className="grid min-h-0">

@@ -114,7 +114,7 @@ export interface HeatmapPoint {
  * floor, e.g. CO₂ or temperature from sensors. Rendered per level as a texture; not pickable, so
  * hovering still reaches the rooms underneath (pair it with a room layer for tooltips).
  * Replacing it with new values (`setLayer`/`updateLayer`) refills the existing texture; the
- * room mask is cached until the plan or `resolution`/`clipToRooms` change.
+ * room mask is cached until the plan or `resolution`/`clipToRooms`/`byRoom` change.
  */
 export interface HeatmapLayer {
   id: string;
@@ -130,6 +130,13 @@ export interface HeatmapLayer {
   maxDistance?: number;
   /** Only paint inside rooms. Default true. */
   clipToRooms?: boolean;
+  /**
+   * Interpolate every room on its own, as if walls stop what is measured (a gas, the air of a
+   * closed room): a cell takes its value only from the points inside the same room. Rooms without
+   * points stay transparent and points outside every room are ignored. Always clips to rooms
+   * (`clipToRooms` is not used). Default false.
+   */
+  byRoom?: boolean;
   /** 0–1. Default 0.8. */
   opacity?: number;
   /** Height above the level floor (m). Default 0.05. */
