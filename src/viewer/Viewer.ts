@@ -8,6 +8,10 @@ import { clonePlan } from '../model/plan';
 import type { FloorPlan, Level, Point, Underlay } from '../model/types';
 import { toThreeColor } from './color';
 import { buildHighlight, resolveFocus, type FocusOptions, type FocusTarget } from './focus';
+import { DEFAULT_FRAME_DURATION, DEFAULT_FRAME_MIN_SPAN, DEFAULT_FRAME_PADDING, autoFrameAngle, autoFrameCandidates, frameAngleOffset, framePixelsPerMeter, lerpOffset, lerpZoom, resolveFrame, type FrameAngle, type FrameOptions, type ResolvedFrame } from './frame';
+
+/** Meters before a target where `frame()`'s `'auto'` angle stops looking for something in the way. */
+const FRAME_OCCLUSION_MARGIN = 1;
 import { buildHeatmapMesh, fillHeatmap, heatmapGrid, heatmapPointsOn, type HeatmapGrid } from './heatmap';
 import type { DataLayer, HeatmapLayer, PointLayer, RoomLayer } from './layers';
 import { applyModelStyle, ModelCache, type ModelStyle } from './models';
@@ -233,9 +237,19 @@ export class FloorplanViewer {
   private hovered: PickInfo | null = null;
   private hoveredMesh: THREE.Mesh | null = null;
   private downAt: { x: number; y: number } | null = null;
-  private frame = 0;
-  /** A running `centerOn` animation of the orbit target. */
-  private pan: { from: THREE.Vector3; to: THREE.Vector3; duration: number; start: number | null } | null = null;
+  private rafId = 0;
+  /**
+   * A running camera animation (`centerOn`, `frame`): the orbit target moves `from` → `to`; a 2D
+   * `zoom` changes on a log scale; a 3D `offset` (camera position minus target) changes length.
+   */
+  private pan: {
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    duration: number;
+    start: number | null;
+    zoom?: { from: number; to: number };
+    offset?: { from: THREE.Vector3; to: THREE.Vector3 };
+  } | null = null;
   private dirty = true;
   private disposed = false;
 
@@ -295,7 +309,7 @@ export class FloorplanViewer {
     this.resize();
 
     if (options.plan) this.setPlan(options.plan, { fit: true });
-    this.frame = requestAnimationFrame(this.loop);
+    this.rafId = requestAnimationFrame(this.loop);
   }
 
   // ---------------------------------------------------------------- public API
@@ -754,16 +768,71 @@ export class FloorplanViewer {
     this.pan = null;
     this.moveTarget(new THREE.Vector3(resolved.center.x, elevation + resolved.height, resolved.center.y));
 
-    this.clearHighlight();
-    const highlight = options.highlight ?? true;
-    if (highlight) {
-      const spec = typeof highlight === 'object' ? highlight : {};
-      this.focusState = { target, color: spec.color ?? this.colors.highlight, mesh: null, timer: null };
-      if (spec.duration) this.focusState.timer = setTimeout(() => this.clearHighlight(), spec.duration);
-      this.updateHighlight();
-    }
+    this.applyFocusHighlight(target, options.highlight ?? true);
     this.requestRender();
     return true;
+  }
+
+  /**
+   * Pan and zoom so the targets fill the view, `padding` px from its edges, and ease there (default
+   * 700 ms, ease-out; the zoom changes on a log scale). The zoom stops at `minSpan` meters across the
+   * view's shorter side, so one small target keeps its surroundings in view. The first target that
+   * exists picks the level (switching to it if it isn't shown); targets on other levels are left out.
+   * In 3D the camera keeps its angle and moves along its line of sight. Jumps under `animate: false`
+   * or `prefers-reduced-motion`; user camera input cancels it. `highlight` marks the first target as
+   * `focus()` does. Returns false when no target exists.
+   */
+  frame(targets: readonly FocusTarget[], options: FrameOptions = {}): boolean {
+    if (!this.plan) return false;
+    const resolved = resolveFrame(this.plan, targets, this.lookupPoint);
+    if (!resolved) return false;
+    if (!this.visibleLevelIds().has(resolved.levelId)) this.setLevel(resolved.levelId);
+
+    const elevation = this.levelById(resolved.levelId)?.elevation ?? 0;
+    const to = new THREE.Vector3((resolved.min.x + resolved.max.x) / 2, elevation + resolved.height, (resolved.min.y + resolved.max.y) / 2);
+    const view = { width: this.element.clientWidth, height: this.element.clientHeight };
+    const ppm = framePixelsPerMeter(
+      { width: resolved.max.x - resolved.min.x, height: resolved.max.y - resolved.min.y },
+      view,
+      options.padding ?? DEFAULT_FRAME_PADDING,
+      options.minSpan ?? DEFAULT_FRAME_MIN_SPAN,
+    );
+
+    const next: NonNullable<typeof this.pan> = { from: this.controls.target.clone(), to, duration: 0, start: null };
+    if (view.height > 0) {
+      if (this.mode === '2d') {
+        const zoom = (ppm * (this.ortho.top - this.ortho.bottom)) / view.height;
+        next.zoom = { from: this.ortho.zoom, to: THREE.MathUtils.clamp(zoom, this.controls.minZoom, this.controls.maxZoom) };
+      } else {
+        const offset = this.perspective.position.clone().sub(this.controls.target);
+        const distance = Math.max(view.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.perspective.fov / 2)) * ppm), this.controls.minDistance);
+        const angle = options.angle ?? 'keep';
+        let toOffset = offset.clone().setLength(distance);
+        if (angle !== 'keep') {
+          const picked = angle === 'auto' ? this.autoFrameAngle(resolved, to, distance) : angle;
+          const o = frameAngleOffset(picked, distance);
+          toOffset = new THREE.Vector3(o.x, o.y, o.z);
+        }
+        next.offset = { from: offset, to: toOffset };
+      }
+    }
+
+    next.duration = centerDuration({ animate: options.animate, duration: options.duration ?? DEFAULT_FRAME_DURATION });
+    this.pan = next;
+    if (next.duration === 0) this.stepPan(0);
+
+    if (options.highlight) this.applyFocusHighlight(resolved.first, options.highlight);
+    this.requestRender();
+    return true;
+  }
+
+  private applyFocusHighlight(target: FocusTarget, highlight: NonNullable<FocusOptions['highlight']>): void {
+    this.clearHighlight();
+    if (!highlight) return;
+    const spec = typeof highlight === 'object' ? highlight : {};
+    this.focusState = { target, color: spec.color ?? this.colors.highlight, mesh: null, timer: null };
+    if (spec.duration) this.focusState.timer = setTimeout(() => this.clearHighlight(), spec.duration);
+    this.updateHighlight();
   }
 
   /**
@@ -844,7 +913,7 @@ export class FloorplanViewer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    cancelAnimationFrame(this.frame);
+    cancelAnimationFrame(this.rafId);
     this.reducedMotion?.removeEventListener('change', this.onReducedMotionChange);
     this.resizeObserver.disconnect();
     this.controls.dispose();
@@ -906,7 +975,7 @@ export class FloorplanViewer {
   }
 
   private loop = (time: number): void => {
-    this.frame = requestAnimationFrame(this.loop);
+    this.rafId = requestAnimationFrame(this.loop);
     if (this.pan) this.stepPan(time);
     if (this.animateBeams(time)) this.dirty = true;
     if (this.animateFlows(time)) this.dirty = true;
@@ -916,9 +985,74 @@ export class FloorplanViewer {
   private stepPan(time: number): void {
     const pan = this.pan!;
     pan.start ??= time;
-    const t = Math.min((time - pan.start) / pan.duration, 1);
-    this.moveTarget(pan.from.clone().lerp(pan.to, easeOutCubic(t)));
+    const t = pan.duration > 0 ? Math.min((time - pan.start) / pan.duration, 1) : 1;
+    const k = easeOutCubic(t);
+    const target = pan.from.clone().lerp(pan.to, k);
+    if (pan.zoom) {
+      this.ortho.zoom = lerpZoom(pan.zoom.from, pan.zoom.to, k);
+      this.ortho.updateProjectionMatrix();
+    }
+    if (pan.offset) {
+      const o = lerpOffset(pan.offset.from, pan.offset.to, k);
+      this.camera.position.copy(target).add(new THREE.Vector3(o.x, o.y, o.z));
+      this.controls.target.copy(target);
+      this.controls.update();
+      this.requestRender();
+    } else {
+      this.moveTarget(target);
+    }
     if (t >= 1) this.pan = null;
+  }
+
+  /**
+   * The `'auto'` frame angle: the first of `autoFrameCandidates` from which no 3D model (and no
+   * wall drawn at full height) stands between the camera and a target, else the one that hides
+   * the fewest. A hit within `FRAME_OCCLUSION_MARGIN` of a target doesn't count, so an item
+   * sitting on its own model is not hidden by it.
+   */
+  private autoFrameAngle(resolved: ResolvedFrame, to: THREE.Vector3, distance: number): FrameAngle {
+    const center = { x: to.x, y: to.z };
+    const preferred = autoFrameAngle(this.levelCenter(resolved.levelId) ?? center, center);
+    const built = this.built.find((b) => b.levelId === resolved.levelId);
+    if (!built) return preferred;
+    const blockers: THREE.Object3D[] = [];
+    if (this.showModels) for (const m of built.models) blockers.push(m.slot);
+    if (this.wallDisplay === 'full') blockers.push(...built.walls.values());
+    if (blockers.length === 0) return preferred;
+
+    const elevation = built.group.position.y;
+    const points = resolved.targets.map((t) => new THREE.Vector3(t.center.x, elevation + t.height, t.center.y));
+    const ray = new THREE.Raycaster();
+    let best = preferred;
+    let bestHidden = Infinity;
+    for (const candidate of autoFrameCandidates(preferred)) {
+      const o = frameAngleOffset(candidate, distance);
+      const eye = to.clone().add(new THREE.Vector3(o.x, o.y, o.z));
+      let hidden = 0;
+      for (const point of points) {
+        const toPoint = point.clone().sub(eye);
+        const length = toPoint.length();
+        ray.set(eye, toPoint.normalize());
+        ray.far = Math.max(length - FRAME_OCCLUSION_MARGIN, 0);
+        if (ray.far > 0 && ray.intersectObjects(blockers, true).length > 0) hidden++;
+      }
+      if (hidden === 0) return candidate;
+      if (hidden < bestHidden) {
+        best = candidate;
+        bestHidden = hidden;
+      }
+    }
+    return best;
+  }
+
+  /** The middle of a built level's contents in plan coordinates, or null when it has none. */
+  private levelCenter(levelId: string): Point | null {
+    const built = this.built.find((b) => b.levelId === levelId);
+    if (!built) return null;
+    const box = new THREE.Box3().setFromObject(built.group);
+    if (box.isEmpty()) return null;
+    const c = box.getCenter(new THREE.Vector3());
+    return { x: c.x, y: c.z };
   }
 
   /** Move the orbit target to `center`, shifting the camera by the same amount (same zoom, distance and angle). */

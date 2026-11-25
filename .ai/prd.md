@@ -85,6 +85,7 @@ Priority labels: Must (core of the product), Should (important, first to cut), C
 - FR-VIEW-08: `focus(target)` centers the camera on a data point, room, wall, marker or position (switching level if needed) and highlights it with a ring or outline, e.g. for "Show on floor plan" links.
 - FR-VIEW-09: `centerOn({ levelId, position })` smoothly pans to a plan position (about 300 ms, ease-out) without changing the zoom or, in 3D, the camera distance and angle, switching level if needed. It can jump instead (`animate: false`) and always jumps under `prefers-reduced-motion`.
 - FR-VIEW-10: Walls can be drawn as low stubs in 3D (`setWallDisplay('low')`, height `lowWallHeight`, default 0.3 m) so they don't hide a room's contents while rooms still read. It is a display setting: applied in place, kept across `setPlan`, the camera and plan are untouched, and walls stay pickable and focusable. 2D is unchanged. Studio has a Walls toggle in the viewer.
+- FR-VIEW-11: `frame(targets)` pans and zooms so one or more focus targets fill the view (padding in px), switching to the first target's level. The zoom stops at a minimum span in meters, so a single target keeps its surroundings in view. Pan and zoom ease together (about 700 ms, ease-out; zoom on a log scale), jump under `prefers-reduced-motion`, and stop on camera input. It can highlight the first target like `focus()`.
 - FR-VIEW-07: Colors in any CSS syntax (including `hsl()` with spaces and `oklch()`) are converted correctly for Three.js.
 
 ### 3.4 Data layers (Must)
