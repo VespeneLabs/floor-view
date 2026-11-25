@@ -14,6 +14,8 @@ export { interpolateIDW } from './viewer/heatmap';
 export type { PickInfo, SceneColors } from './viewer/sceneBuilder';
 export type { FlowDirection } from './viewer/pipelines';
 export type { FocusOptions, FocusTarget } from './viewer/focus';
+export type { FrameAngle, FrameOptions } from './viewer/frame';
+export { AUTO_FRAME_ELEVATION } from './viewer/frame';
 export type { OverlayAnchor, ViewerOverlay } from './viewer/overlays';
 export { DEFAULT_SCENE_COLORS } from './viewer/sceneBuilder';
 export { toThreeColor } from './viewer/color';
