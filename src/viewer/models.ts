@@ -13,6 +13,18 @@ export interface ModelStyle {
   accent: THREE.Color | null;
   /** Color every material in `accent` (a state tint), not only accent parts. */
   whole?: boolean;
+  /**
+   * A fill level drawn on the whole model (`setMarkerLevels`): `color` below the level, `empty`
+   * above it and a bright band at the level. Null or absent draws no level.
+   */
+  fill?: ModelFill | null;
+}
+
+/** How a model shows a fill level: a fraction of its height (0–1) and the colors around it. */
+export interface ModelFill {
+  fraction: number;
+  color: THREE.Color;
+  empty: THREE.Color;
 }
 
 /** True for materials that take the accent color. */
@@ -22,14 +34,42 @@ interface StyleUniforms {
   vlClay: { value: THREE.Color };
   vlAccent: { value: THREE.Color };
   vlAccentOn: { value: number };
+  vlFillOn: { value: number };
+  vlFill: { value: THREE.Color };
+  vlEmpty: { value: THREE.Color };
+  /** World height of the level, and half the height of the bright band at it (m). */
+  vlFillY: { value: number };
+  vlFillBand: { value: number };
 }
+
+/** Fresh uniforms for one patched material. */
+function styleUniforms(): StyleUniforms {
+  return {
+    vlClay: { value: new THREE.Color() },
+    vlAccent: { value: new THREE.Color() },
+    vlAccentOn: { value: 0 },
+    vlFillOn: { value: 0 },
+    vlFill: { value: new THREE.Color() },
+    vlEmpty: { value: new THREE.Color() },
+    vlFillY: { value: 0 },
+    vlFillBand: { value: 0 },
+  };
+}
+
+/** Half the height of the bright band at a fill level, as a share of the model's height. */
+const FILL_BAND = 0.018;
 
 // Runs after map/color sampling, on the linear diffuse color. Brightness is taken in a perceptual
 // (gamma) space and compressed, so dark details read as soft shading rather than black.
 const CLAY_GLSL = /* glsl */ `
 #include <color_fragment>
 float vlLum = pow(max(dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722)), 0.0), 1.0 / 2.2);
-diffuseColor.rgb = (vlAccentOn > 0.5 ? vlAccent : vlClay) * mix(0.62, 1.0, smoothstep(0.02, 0.7, vlLum));
+vec3 vlBase = vlAccentOn > 0.5 ? vlAccent : vlClay;
+if (vlFillOn > 0.5) {
+  float vlAbove = vlWorldY - vlFillY;
+  vlBase = vlAbove > vlFillBand ? vlEmpty : (vlAbove > -vlFillBand ? mix(vlFill, vec3(1.0), 0.6) : vlFill);
+}
+diffuseColor.rgb = vlBase * mix(0.62, 1.0, smoothstep(0.02, 0.7, vlLum));
 `;
 
 /** Patch a model material once so its colors follow `uniforms` (shared program for all models). */
@@ -37,8 +77,15 @@ function patchMaterial(material: THREE.Material, uniforms: StyleUniforms): void 
   material.userData.vlStyle = uniforms;
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vlWorldY;')
+      .replace('#include <project_vertex>', '#include <project_vertex>\nvlWorldY = (modelMatrix * vec4(transformed, 1.0)).y;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 vlClay;\nuniform vec3 vlAccent;\nuniform float vlAccentOn;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform vec3 vlClay;\nuniform vec3 vlAccent;\nuniform float vlAccentOn;\n' +
+          'uniform float vlFillOn;\nuniform vec3 vlFill;\nuniform vec3 vlEmpty;\nuniform float vlFillY;\nuniform float vlFillBand;\nvarying float vlWorldY;',
+      )
       .replace('#include <color_fragment>', CLAY_GLSL);
   };
   material.customProgramCacheKey = () => 'vl-model-style';
@@ -50,8 +97,22 @@ function patchMaterial(material: THREE.Material, uniforms: StyleUniforms): void 
   }
 }
 
-/** Set the colors of a model instance (from `ModelCache.instantiate`) without recompiling. */
+/**
+ * Set the colors of a model instance (from `ModelCache.instantiate`) without recompiling. A fill
+ * level is placed by the instance's world bounds, so apply the style again once the instance is in
+ * the scene (or after it moves up or down).
+ */
 export function applyModelStyle(instance: THREE.Object3D, style: ModelStyle): void {
+  const fill = style.fill ?? null;
+  let fillY = 0;
+  let band = 0;
+  if (fill) {
+    instance.updateWorldMatrix(true, true);
+    const box = new THREE.Box3().setFromObject(instance);
+    const height = box.isEmpty() ? 0 : box.max.y - box.min.y;
+    fillY = box.min.y + Math.min(1, Math.max(0, fill.fraction)) * height;
+    band = FILL_BAND * height;
+  }
   let hasAccentParts = false;
   instance.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
@@ -67,6 +128,13 @@ export function applyModelStyle(instance: THREE.Object3D, style: ModelStyle): vo
       const accent = hasAccentParts && !style.whole && !isAccentMaterial(m) ? null : style.accent;
       u.vlAccentOn.value = accent ? 1 : 0;
       if (accent) u.vlAccent.value.copy(accent);
+      u.vlFillOn.value = fill ? 1 : 0;
+      if (fill) {
+        u.vlFill.value.copy(fill.color);
+        u.vlEmpty.value.copy(fill.empty);
+        u.vlFillY.value = fillY;
+        u.vlFillBand.value = band;
+      }
     }
   });
 }
@@ -114,11 +182,7 @@ export class ModelCache {
       if (!mesh.isMesh) return;
       const copy = (m: THREE.Material) => {
         const c = m.clone();
-        patchMaterial(c, {
-          vlClay: { value: new THREE.Color() },
-          vlAccent: { value: new THREE.Color() },
-          vlAccentOn: { value: 0 },
-        });
+        patchMaterial(c, styleUniforms());
         return c;
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(copy) : copy(mesh.material);

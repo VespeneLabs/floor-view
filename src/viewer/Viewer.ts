@@ -36,6 +36,17 @@ export type LevelSelection = string | 'all';
 /** How walls are drawn in 3D: at their real height, or as low stubs that don't hide a room's contents. */
 export type WallDisplay = 'full' | 'low';
 
+/** A fill level on a marker's 3D model (`setMarkerLevels`). */
+export interface MarkerLevel {
+  /** Share of the model's height that is filled, 0–1 (values outside are clamped). */
+  fraction: number;
+  /** Color below the level, e.g. a state color. Any CSS color. */
+  color: string;
+  /** Color above the level. Default the model's own clay, like every other model. */
+  empty?: string;
+}
+
+
 export interface ViewerOptions {
   plan?: FloorPlan;
   mode?: ViewMode;
@@ -215,6 +226,8 @@ export class FloorplanViewer {
   private ghost: { spec: Ghost; mesh: THREE.Mesh } | null = null;
   /** Host-managed state colors by marker id (`setMarkerTints`), kept across `setPlan`. */
   private tints = new Map<string, string>();
+  /** Host-managed fill levels by marker id (`setMarkerLevels`), kept across `setPlan`. */
+  private levels = new Map<string, MarkerLevel>();
   /** Host-managed state colors by pipeline id (`setPipelineTints`), kept across `setPlan`. */
   private pipeTints = new Map<string, string>();
   /** Flow animations by pipeline id (`setPipelineFlow`), kept across `setPlan`. */
@@ -492,6 +505,31 @@ export class FloorplanViewer {
     }
     for (const id of changed) this.applyTint(id);
     this.requestRender();
+  }
+
+  /**
+   * Show a fill level on markers' 3D models, by marker id (e.g. the content of a gas container):
+   * the model is drawn in `color` up to `fraction` (0–1) of its height and in `empty` (default a
+   * model's own clay) above it, with a bright band at the level. null removes a level. A level wins over
+   * a tint and the marker's accent; a marker without a loaded model shows none. Like tints, levels
+   * are display state: applied in place, kept across `setPlan`. `replace: true` clears every level
+   * not in `levels` first.
+   */
+  setMarkerLevels(levels: Record<string, MarkerLevel | null>, { replace = false }: { replace?: boolean } = {}): void {
+    const changed = new Set(replace ? this.levels.keys() : []);
+    if (replace) this.levels.clear();
+    for (const [id, level] of Object.entries(levels)) {
+      if (level) this.levels.set(id, { ...level });
+      else this.levels.delete(id);
+      changed.add(id);
+    }
+    for (const id of changed) this.applyTint(id);
+    this.requestRender();
+  }
+
+  /** The current marker fill levels by id. */
+  getMarkerLevels(): Record<string, MarkerLevel> {
+    return Object.fromEntries([...this.levels].map(([id, level]) => [id, { ...level }]));
   }
 
   /** Tint one marker (see `setMarkerTints`), or remove its tint with null. */
@@ -1194,12 +1232,19 @@ export class FloorplanViewer {
     disposeObject(slot.placeholder);
     slot.placeholder = null;
     slot.slot.add(instance);
+    // A fill level is placed by the model's world bounds, known only now that it is in the scene.
+    if (this.levels.has(slot.markerId)) applyModelStyle(instance, this.modelStyle(slot));
     this.requestRender();
   }
 
   private modelStyle(slot: ModelSlot): ModelStyle {
     const tint = this.tints.get(slot.markerId);
     const clay = toThreeColor(this.colors.model);
+    const level = this.levels.get(slot.markerId);
+    if (level !== undefined) {
+      const fill = { fraction: level.fraction, color: toThreeColor(level.color), empty: level.empty === undefined ? clay : toThreeColor(level.empty) };
+      return { clay, accent: null, fill };
+    }
     if (tint !== undefined) return { clay, accent: clay.clone().lerp(toThreeColor(tint), this.markerTintStrength), whole: true };
     return { clay, accent: slot.color ? toThreeColor(slot.color) : null, whole: false };
   }
@@ -1220,7 +1265,7 @@ export class FloorplanViewer {
   }
 
   private applyTints(): void {
-    for (const id of this.tints.keys()) this.applyTint(id);
+    for (const id of new Set([...this.tints.keys(), ...this.levels.keys()])) this.applyTint(id);
   }
 
   private applyModelVisibility(): void {
