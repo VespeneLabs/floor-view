@@ -42,11 +42,10 @@ export interface MarkerLevel {
   fraction: number;
   /** Color below the level, e.g. a state color. Any CSS color. */
   color: string;
-  /** Color above the level. Default a dark steel. */
+  /** Color above the level. Default the model's own clay, like every other model. */
   empty?: string;
 }
 
-const DEFAULT_LEVEL_EMPTY = '#3b4448';
 
 export interface ViewerOptions {
   plan?: FloorPlan;
@@ -511,7 +510,7 @@ export class FloorplanViewer {
   /**
    * Show a fill level on markers' 3D models, by marker id (e.g. the content of a gas container):
    * the model is drawn in `color` up to `fraction` (0–1) of its height and in `empty` (default a
-   * dark steel) above it, with a bright band at the level. null removes a level. A level wins over
+   * model's own clay) above it, with a bright band at the level. null removes a level. A level wins over
    * a tint and the marker's accent; a marker without a loaded model shows none. Like tints, levels
    * are display state: applied in place, kept across `setPlan`. `replace: true` clears every level
    * not in `levels` first.
@@ -1243,7 +1242,7 @@ export class FloorplanViewer {
     const clay = toThreeColor(this.colors.model);
     const level = this.levels.get(slot.markerId);
     if (level !== undefined) {
-      const fill = { fraction: level.fraction, color: toThreeColor(level.color), empty: toThreeColor(level.empty ?? DEFAULT_LEVEL_EMPTY) };
+      const fill = { fraction: level.fraction, color: toThreeColor(level.color), empty: level.empty === undefined ? clay : toThreeColor(level.empty) };
       return { clay, accent: null, fill };
     }
     if (tint !== undefined) return { clay, accent: clay.clone().lerp(toThreeColor(tint), this.markerTintStrength), whole: true };
